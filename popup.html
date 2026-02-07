@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CZDM Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <div id="confirmModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title" id="modalTitle">Confirm Action</div>
+      <div class="modal-text" id="modalText">...</div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="modalCancel">Cancel</button>
+        <button class="modal-btn confirm" id="modalOk">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="addModal" class="modal-overlay">
+    <div class="modal-box large">
+      <div class="modal-title">Add Download URL</div>
+      <div class="input-group-row">
+        <input type="text" id="newUrlInput" placeholder="Paste URL here..." autocomplete="off">
+        <button id="pasteBtn" class="btn-icon-sm" title="Paste from Clipboard">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+        </button>
+      </div>
+      <div id="urlDetails" class="url-details hidden"></div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="addCancel">Cancel</button>
+        <button class="modal-btn primary" id="addConfirm" disabled>Download</button>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <div class="brand">
+      <img src="img/48x48.png" width="24" height="24" alt="Icon">
+      <span>CZDM</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="grabber">Grabber</button>
+      <button class="tab-btn" data-tab="about">About</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="dashboard" class="tab-pane active">
+      <div class="toolbar-fixed">
+        <button id="toolAdd" class="tool-btn primary" title="Add New Download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Add URL</span>
+        </button>
+        <div class="v-divider"></div>
+        <button id="toolStart" class="tool-btn" title="Start/Resume Selected" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Start</span>
+        </button>
+        <button id="toolPause" class="tool-btn" title="Pause Selected" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          <span>Pause</span>
+        </button>
+        <button id="toolDelete" class="tool-btn danger" title="Delete Selected" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>Delete</span>
+        </button>
+        <div class="spacer"></div>
+        <button id="toolSelectAll" class="tool-btn" title="Select All Items">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+           <span>Select All</span>
+        </button>
+        <button id="toolClear" class="tool-btn" title="Clear Completed">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+           <span>Clear</span>
+        </button>
+      </div>
+
+      <div id="listContainer" class="list-scroll-area"></div>
+    </div>
+
+    <div id="grabber" class="tab-pane">
+       <div id="grabberInit" class="grabber-center">
+        <div class="scan-promo">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <p>Scan current webpage for media files.</p>
+          <button id="scanBtn" class="btn-hero">
+             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+             <span>Start Scan</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="grabberResults" class="grabber-layout hidden">
+         <div class="toolbar-fixed">
+            <button id="downloadSelectedBtn" class="tool-btn primary" title="Download Selected">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Download</span>
+            </button>
+            <div class="v-divider"></div>
+            <button id="grabSelectAllBtn" class="tool-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                <span>Select All</span>
+            </button>
+             <button id="rescanBtn" class="tool-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span>Rescan</span>
+            </button>
+            <div class="spacer"></div>
+             <div class="filter-wrapper">
+                <input type="text" id="filterInput" class="toolbar-input" placeholder="Filter files...">
+                <div id="grabCountLabel" class="count-label">Found: 0</div>
+             </div>
+         </div>
+         <div id="grabList" class="list-scroll-area"></div>
+      </div>
+
+      <div id="grabberBlocked" class="grabber-center hidden">
+         <div class="scan-promo">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            <p style="color:var(--text)">This page is restricted.</p>
+         </div>
+      </div>
+    </div>
+
+    <div id="about" class="tab-pane">
+      <div class="about-wrapper">
+        <div class="about-card">
+          <img src="img/128x128.png" alt="Logo" class="app-logo-lg">
+          <h2>CZDM</h2>
+          <div class="version-badge" id="appVersion">v...</div>
+          <p class="about-desc" id="appDesc">Loading description...</p>
+          
+          <a href="https://github.com/cyberzilla/CZDM" target="_blank" class="github-link">
+             <svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+             GitHub Repository
+          </a>
+
+          <div style="font-size:12px; color:#94a3af">© 2026 Cyberzilla</div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
