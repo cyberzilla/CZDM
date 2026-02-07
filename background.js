@@ -70,18 +70,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   else if (msg.action === "add_batch_tasks") msg.urls?.forEach(url => queueDownload(url));
   else if (msg.action === "get_tasks") sendResponse(Array.from(tasks.values()));
   else if (msg.action === "check_url") {
-    fetch(msg.url, { method: 'HEAD' }).then(resp => {
-         if (!resp.ok) throw new Error('Fail');
-         const len = resp.headers.get('content-length');
-         const type = resp.headers.get('content-type') || 'unknown';
-         const etag = resp.headers.get('etag') || '-';
-         let name = msg.url.split('/').pop().split('?')[0];
-         const disp = resp.headers.get('content-disposition');
-         if (disp && disp.includes('filename=')) name = disp.split('filename=')[1].replace(/["']/g, '').trim();
-         try { name = decodeURIComponent(name); } catch(e){}
-         sendResponse({ success: true, size: parseInt(len || 0), filename: name, mime: type, checksum: etag.replace(/["']/g, '') });
-      }).catch(() => sendResponse({ success: false }));
-    return true; 
+      fetch(msg.url, {
+          method: 'GET',
+          headers: { 'Range': 'bytes=0-0' }
+      }).then(resp => {
+          if (!resp.ok && resp.status !== 206) throw new Error('Fail');
+
+          const contentRange = resp.headers.get('content-range');
+          let size = 0;
+          if (contentRange) {
+              size = parseInt(contentRange.split('/')[1]);
+          } else {
+              // Fallback ke Content-Length jika server mengabaikan Range
+              size = parseInt(resp.headers.get('content-length') || 0);
+          }
+
+          const type = resp.headers.get('content-type') || 'unknown';
+          const etag = resp.headers.get('etag') || '-';
+
+          // Logika nama file tetap sama
+          let name = msg.url.split('/').pop().split('?')[0];
+          const disp = resp.headers.get('content-disposition');
+          if (disp && disp.includes('filename=')) {
+              name = disp.split('filename=')[1].replace(/["']/g, '').trim();
+          }
+          try { name = decodeURIComponent(name); } catch(e){}
+
+          sendResponse({
+              success: true,
+              size: size,
+              filename: name,
+              mime: type,
+              checksum: etag.replace(/["']/g, '')
+          });
+      }).catch((err) => {
+          console.error("Check URL Error:", err);
+          sendResponse({ success: false });
+      });
+      return true;
   }
   else if (msg.action === "pause_task") {
     const task = tasks.get(msg.id);

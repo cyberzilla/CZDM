@@ -1,4 +1,3 @@
-// NONAKTIFKAN KLIK KANAN (Kecuali pada Input Text)
 document.addEventListener('contextmenu', (event) => {
     if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
         event.preventDefault();
