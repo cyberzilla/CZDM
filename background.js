@@ -1,4 +1,4 @@
-// background.js - CZDM Engine v1.2 with Auto-Download Interceptor
+// background.js - CZDM Engine v1.3 (Anti-Native Popup Optimization)
 // Resource-friendly storage management & Corruption-proof assembly
 
 const DB_NAME = 'CZDM_DB';
@@ -8,39 +8,32 @@ let tasks = new Map();
 let activeControllers = new Map();
 
 const MAX_CONCURRENT_DOWNLOADS = 3;
-const CHUNK_SIZE = 1024 * 1024 * 1; // 1MB Buffer
+const CHUNK_SIZE = 1024 * 1024 * 1;
 
-// --- THROTTLING VARIABLES ---
 let lastSaveTime = 0;
 const SAVE_INTERVAL = 2000;
 let broadcastInterval = null;
 
-// --- AUTO-DOWNLOAD INTERCEPTOR ---
-// Fungsi untuk menangkap download bawaan browser dan mengalihkannya ke CZDM
+// --- OPTIMIZED AUTO-DOWNLOAD INTERCEPTOR ---
 chrome.downloads.onCreated.addListener((downloadItem) => {
-    // Hindari loop: Jangan tangkap download yang dipicu oleh CZDM sendiri
-    if (downloadItem.byExtensionId === chrome.runtime.id) {
-        return;
-    }
+    // 1. Validasi awal secepat mungkin untuk menghindari loop
+    if (downloadItem.byExtensionId === chrome.runtime.id) return;
 
-    // Daftar ekstensi yang akan otomatis ditangkap (bisa disesuaikan)
-    const interceptExts = [
-        'zip', 'rar', '7z', 'iso', 'exe', 'msi', 'apk',
-        'mp4', 'mkv', 'avi', 'mp3', 'pdf', 'dmg', 'pkg'
-    ];
-
+    // 2. Tentukan kriteria intersepsi
+    const interceptExts = ['zip', 'rar', '7z', 'iso', 'exe', 'msi', 'apk', 'mp4', 'mkv', 'avi', 'mp3', 'pdf', 'dmg', 'pkg'];
     const fileExt = downloadItem.filename.split('.').pop().toLowerCase();
-    const shouldIntercept = interceptExts.includes(fileExt) || downloadItem.fileSize > 5 * 1024 * 1024; // Tangkap jika ekstensi cocok ATAU ukuran > 5MB
 
-    if (shouldIntercept) {
-        // Batalkan download bawaan browser
+    // Periksa apakah URL atau ekstensi cocok
+    const isMatched = interceptExts.includes(fileExt) || downloadItem.fileSize > 5 * 1024 * 1024;
+
+    if (isMatched) {
+        // LANGKAH KRUSIAL: Batalkan segera
         chrome.downloads.cancel(downloadItem.id, () => {
-            // Hapus dari shelf/riwayat agar bersih
+            // Hapus dari riwayat agar popup 'Cancelled' tidak muncul di bar browser
             chrome.downloads.erase({id: downloadItem.id});
 
-            // Kirim ke antrean CZDM
+            // Masukkan ke engine CZDM
             queueDownload(downloadItem.url);
-            console.log("CZDM: Berhasil mencegat download otomatis:", downloadItem.url);
         });
     }
 });
