@@ -16,12 +16,21 @@ let broadcastInterval = null;
 
 // --- OPTIMIZED AUTO-DOWNLOAD INTERCEPTOR ---
 chrome.downloads.onCreated.addListener((downloadItem) => {
-    // 1. Validasi awal secepat mungkin untuk menghindari loop
+    // 1. Validasi awal secepat mungkin untuk menghindari loop dari CZDM sendiri
     if (downloadItem.byExtensionId === chrome.runtime.id) return;
+
+    // FIX 1: Tolak URL yang bukan http/https (Abaikan blob:, data:, chrome://, file://)
+    // CZDM background script tidak bisa melakukan fetch ke blob URL milik tab webpage
+    if (!downloadItem.url || (!downloadItem.url.startsWith('http://') && !downloadItem.url.startsWith('https://'))) {
+        return;
+    }
+
+    // FIX 2: Perbaiki logika parsing ekstensi secara aman
+    const filename = downloadItem.filename || "";
+    const fileExt = filename.includes('.') ? filename.split('.').pop().toLowerCase() : "";
 
     // 2. Tentukan kriteria intersepsi
     const interceptExts = ['zip', 'rar', '7z', 'iso', 'exe', 'msi', 'apk', 'mp4', 'mkv', 'avi', 'mp3', 'pdf', 'dmg', 'pkg'];
-    const fileExt = downloadItem.filename.split('.').pop().toLowerCase();
 
     // Periksa apakah URL atau ekstensi cocok
     const isMatched = interceptExts.includes(fileExt) || downloadItem.fileSize > 5 * 1024 * 1024;
