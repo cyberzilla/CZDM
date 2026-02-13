@@ -1,4 +1,4 @@
-// background.js - CZDM Engine v1.1 Optimized
+// background.js - CZDM Engine v1.2 with Google Drive Parser
 // Resource-friendly storage management & Corruption-proof assembly
 
 const DB_NAME = 'CZDM_DB';
@@ -14,6 +14,26 @@ const CHUNK_SIZE = 1024 * 1024 * 1; // 1MB Buffer
 let lastSaveTime = 0;
 const SAVE_INTERVAL = 2000; // Simpan state ke storage max tiap 2 detik
 let broadcastInterval = null;
+
+// --- GOOGLE DRIVE PARSER HELPER ---
+function parseGoogleDriveLink(url) {
+    if (!url) return url;
+
+    // Cek apakah ini link google drive
+    if (url.includes('drive.google.com')) {
+        // Regex untuk mengambil ID File (Sesuai referensi user)
+        const regex = /\/d\/([a-zA-Z0-9_-]+)/;
+        const match = url.match(regex);
+
+        if (match && match[1]) {
+            // Return format Direct Link
+            return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+        }
+    }
+
+    // Jika bukan GDrive atau pola tidak cocok, kembalikan URL asli
+    return url;
+}
 
 // Loop utama untuk kalkulasi kecepatan & broadcast ke UI
 function startBroadcastLoop() {
@@ -125,9 +145,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.action === "add_batch_tasks") msg.urls?.forEach(url => queueDownload(url));
     else if (msg.action === "get_tasks") sendResponse(Array.from(tasks.values()));
     else if (msg.action === "check_url") {
+
+        // PARSE URL DULU SEBELUM CHECK (Support GDrive Direct Check)
+        const checkTargetUrl = parseGoogleDriveLink(msg.url);
+
         // Head request logic (optimized)
-        fetch(msg.url, { method: 'GET', headers: { 'Range': 'bytes=0-0' } })
+        fetch(checkTargetUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' } })
             .then(resp => {
+                // Handle kasus redirect GDrive atau error
                 if (!resp.ok && resp.status !== 206) throw new Error('Fail');
 
                 let size = 0;
@@ -135,7 +160,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (contentRange) size = parseInt(contentRange.split('/')[1]);
                 else size = parseInt(resp.headers.get('content-length') || 0);
 
-                let name = msg.url.split('/').pop().split('?')[0];
+                let name = checkTargetUrl.split('/').pop().split('?')[0];
                 const disp = resp.headers.get('content-disposition');
                 if (disp && disp.includes('filename=')) {
                     name = disp.split('filename=')[1].replace(/["']/g, '').trim();
@@ -205,7 +230,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "czdm-download") {
         const url = info.linkUrl || info.srcUrl;
-        if (url) queueDownload(url);
+        if (url) queueDownload(url); // queueDownload sudah handle parsing
     }
 });
 
@@ -236,7 +261,10 @@ function processQueue() {
     updateBadge();
 }
 
-async function queueDownload(url) {
+async function queueDownload(rawUrl) {
+    // OTOMATIS PARSE GOOGLE DRIVE LINK DISINI
+    const url = parseGoogleDriveLink(rawUrl);
+
     // Gunakan ID String random, pastikan unik
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 5);
     const task = {
