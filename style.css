@@ -521,9 +521,25 @@ main {
   font-size: 12px; border: 1px solid var(--border);
 }
 .url-details.hidden { display: none; }
-.detail-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-.detail-row .label { color: var(--text-muted); }
-.detail-row .value { font-weight: 600; color: var(--text); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 15px;
+}
+.detail-row .label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.detail-row .value {
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .modal-actions {
   display: flex;

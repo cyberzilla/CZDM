@@ -1,5 +1,5 @@
 // popup.js - UI Logic for CZDM
-// VERSION: Final Complete (Confirmation, Toasts, Sync Fixes, & Optimizations)
+// VERSION: Final Complete (On-Demand + Batch Queue System)
 
 document.addEventListener('contextmenu', (event) => {
     if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
@@ -10,6 +10,10 @@ document.addEventListener('contextmenu', (event) => {
 let selectedIds = new Set();
 let currentTasks = [];
 let grabberLinks = [];
+
+// Variabel untuk Sistem Antrean (Queue) Pengecekan Ukuran
+let checkQueue = [];
+let isCheckingQueue = false;
 
 // --- DOM ELEMENTS ---
 const listContainer = document.getElementById('listContainer');
@@ -57,7 +61,6 @@ let addUrlTimeout = null;
 document.addEventListener('DOMContentLoaded', () => {
     loadManifestInfo();
     requestUpdate(true);
-    // Interval update UI (1 detik) - Logic rendering pintar akan mencegah flicker
     setInterval(() => requestUpdate(false), 1000);
 
     const activeTab = document.querySelector('.tab-btn.active');
@@ -115,16 +118,13 @@ function requestUpdate(isInit) {
         if (!chrome.runtime.lastError && tasks) {
             currentTasks = tasks;
             renderList(tasks);
-            updateToolbarState(); // Sync toolbar setiap update
+            updateToolbarState();
         }
     });
 }
 
 // --- CORE LOGIC: DASHBOARD ---
-
-// Event Delegation (Optimized)
 listContainer.addEventListener('click', (e) => {
-    // Handle Copy URL Button
     const copyBtn = e.target.closest('.copy-url-btn');
     if (copyBtn) {
         const row = copyBtn.closest('.task-row');
@@ -138,18 +138,15 @@ listContainer.addEventListener('click', (e) => {
         return;
     }
 
-    // Handle Row Click
     const row = e.target.closest('.task-row');
     if (!row) return;
 
     const taskId = row.dataset.id;
 
     if (e.target.closest('.col-chk')) {
-        // Klik Checkbox: Toggle selection
         if (selectedIds.has(taskId)) selectedIds.delete(taskId);
         else selectedIds.add(taskId);
     } else {
-        // Klik Baris: Single select (Reset yang lain)
         selectedIds.clear();
         selectedIds.add(taskId);
     }
@@ -176,7 +173,6 @@ function renderList(tasks) {
 
     const taskIds = new Set(tasks.map(t => t.id));
 
-    // Cleanup: Hapus row lama
     Array.from(listContainer.children).forEach(row => {
         const rid = row.dataset.id;
         if (!taskIds.has(rid)) {
@@ -189,11 +185,10 @@ function renderList(tasks) {
         let row = document.getElementById(`task-${task.id}`);
         const isSelected = selectedIds.has(task.id);
 
-        // CREATE ROW
         if (!row) {
             row = document.createElement('div');
             row.id = `task-${task.id}`;
-            row.dataset.id = task.id; // ID String
+            row.dataset.id = task.id;
             row.className = `task-row ${isSelected ? 'selected' : ''}`;
             row.innerHTML = `
                 <div class="col-chk"><div class="chk-box"></div></div>
@@ -217,14 +212,12 @@ function renderList(tasks) {
             const refNode = listContainer.children[index];
             listContainer.insertBefore(row, refNode || null);
         } else {
-            // UPDATE ORDER
             const currentRowAtIndex = listContainer.children[index];
             if (currentRowAtIndex && currentRowAtIndex !== row) {
                 listContainer.insertBefore(row, currentRowAtIndex);
             }
         }
 
-        // UPDATE VISUALS (Surgical)
         if (isSelected && !row.classList.contains('selected')) row.classList.add('selected');
         if (!isSelected && row.classList.contains('selected')) row.classList.remove('selected');
 
@@ -245,7 +238,6 @@ function renderList(tasks) {
         const metaLeft = row.querySelector('.meta-left');
         const metaRight = row.querySelector('.meta-right');
 
-        // Multi-thread visualization
         if (isRunning && task.threads && task.threads.length > 1) {
             fill.style.display = 'none';
             threadsDiv.style.display = 'flex';
@@ -314,8 +306,6 @@ function updateToolbarState() {
 
     toolStart.disabled = !canStart;
     toolPause.disabled = !canPause;
-
-    // Auto-update button text if all selected
     toolSelectAll.querySelector('span').innerText = (currentTasks.length > 0 && count === currentTasks.length) ? "Deselect" : "Select All";
 }
 
@@ -333,8 +323,6 @@ toolSelectAll.onclick = () => {
 
 toolDelete.onclick = () => {
     if (selectedIds.size === 0) return;
-
-    // KONFIRMASI DELETE
     showConfirm('Delete Items?', `Are you sure you want to delete ${selectedIds.size} tasks?`, 'Delete', () => {
         selectedIds.forEach(id => chrome.runtime.sendMessage({ action: 'cancel_task', id: id }));
         showToast(`${selectedIds.size} items deleted`);
@@ -350,8 +338,6 @@ toolClear.onclick = () => {
         showToast('No history to clear.');
         return;
     }
-
-    // KONFIRMASI CLEAR HISTORY
     showConfirm('Clear History?', 'Remove all completed and failed tasks?', 'Clear All', () => {
         chrome.runtime.sendMessage({ action: "clear_tasks" });
         showToast('History cleared');
@@ -388,7 +374,7 @@ function triggerUrlCheck(url) {
 }
 addConfirm.onclick = () => { if (newUrlInput.value) { chrome.runtime.sendMessage({ action: "add_task", url: newUrlInput.value }); addModal.classList.remove('active'); showToast('Added to queue'); } };
 
-// --- GRABBER LOGIC ---
+// --- GRABBER LOGIC (ON-DEMAND + QUEUE BATCHING) ---
 
 function updateGrabberToolbarState() {
     const rows = Array.from(grabList.querySelectorAll('.grab-row'));
@@ -401,17 +387,104 @@ function updateGrabberToolbarState() {
     grabSelectAllBtn.querySelector('span').innerText = allSelected ? "Deselect" : "Select All";
 }
 
+// 1. Fungsi untuk Memasukkan Permintaan ke Antrean
+function queueCheckItemSize(item, row) {
+    if (item.cachedSize !== undefined || item.isChecking) return;
+
+    item.isChecking = true;
+    const sizeEl = row.querySelector('.grab-size-info');
+    // FIX: Gunakan textContent, BUKAN innerText
+    if (sizeEl) sizeEl.textContent = 'Wait...';
+
+    checkQueue.push({ item, row });
+    processCheckQueue();
+}
+
+// 2. Mesin Pemroses Antrean
+function processCheckQueue() {
+    if (isCheckingQueue || checkQueue.length === 0) return;
+    isCheckingQueue = true;
+
+    const batch = checkQueue.splice(0, 5);
+
+    const promises = batch.map(({ item, row }) => {
+        return new Promise(resolve => {
+            const sizeEl = row.querySelector('.grab-size-info');
+            // FIX: Gunakan textContent
+            if (sizeEl) sizeEl.textContent = 'Checking...';
+
+            chrome.runtime.sendMessage({ action: 'check_url', url: item.url }, (res) => {
+                if (res && res.success) {
+                    item.cachedSize = res.size;
+                    if (sizeEl) sizeEl.textContent = formatBytes(res.size);
+                } else {
+                    item.cachedSize = 'unknown';
+                    if (sizeEl) sizeEl.textContent = 'Unknown';
+                }
+                resolve();
+            });
+        });
+    });
+
+    Promise.all(promises).then(() => {
+        isCheckingQueue = false;
+        processCheckQueue();
+    });
+}
+
 grabList.addEventListener('click', (e) => {
+    // --- FITUR BARU: Tangkap klik pada tombol copy ---
+    const copyBtn = e.target.closest('.copy-url-btn');
+    if (copyBtn) {
+        const row = copyBtn.closest('.grab-row');
+        if (row && row.dataset.url) {
+            navigator.clipboard.writeText(row.dataset.url);
+            showToast('URL copied!');
+        }
+        return; // Hentikan di sini agar baris tidak ikut terpilih
+    }
+
     const row = e.target.closest('.grab-row');
     if (!row) return;
 
+    const url = row.dataset.url;
+    const item = grabberLinks.find(i => i.url === url);
+
     if (e.target.closest('.col-chk')) {
         row.classList.toggle('selected');
+
+        if (!row.classList.contains('selected')) {
+            checkQueue = checkQueue.filter(q => {
+                if (q.row === row) {
+                    q.item.isChecking = false;
+                    const sizeEl = row.querySelector('.grab-size-info');
+                    if (sizeEl && sizeEl.textContent === 'Wait...') sizeEl.textContent = '-';
+                    return false;
+                }
+                return true;
+            });
+        } else {
+            if (item) queueCheckItemSize(item, row);
+        }
+
     } else {
-        const allRows = grabList.querySelectorAll('.grab-row');
-        allRows.forEach(r => r.classList.remove('selected'));
+        // A. Hapus warna dengan cepat
+        const currentlySelected = grabList.querySelectorAll('.grab-row.selected');
+        currentlySelected.forEach(r => r.classList.remove('selected'));
+
+        // B. Batalkan SEMUA antrean tanpa membebani Layout Browser
+        checkQueue.forEach(q => {
+            q.item.isChecking = false;
+            const sizeEl = q.row.querySelector('.grab-size-info');
+            if (sizeEl && sizeEl.textContent === 'Wait...') sizeEl.textContent = '-';
+        });
+        checkQueue = [];
+
+        // C. Aktifkan
         row.classList.add('selected');
+        if (item) queueCheckItemSize(item, row);
     }
+
     updateGrabberToolbarState();
 });
 
@@ -431,11 +504,17 @@ function renderGrab(items) {
         row.className = 'grab-row';
         row.dataset.url = i.url;
 
+        row.style.userSelect = 'none';
+        row.style.cursor = 'pointer';
+
         let filename = i.url.split('/').pop().split('?')[0];
         try { filename = decodeURIComponent(filename); } catch(e){}
         if (!filename || filename.trim() === '') filename = 'unknown_file';
 
-        const displaySize = i.cachedSize ? formatBytes(i.cachedSize) : 'Checking...';
+        let displaySize = '-';
+        if (i.cachedSize === 'unknown') displaySize = 'Unknown';
+        else if (i.cachedSize !== undefined) displaySize = formatBytes(i.cachedSize);
+        else if (i.isChecking) displaySize = 'Wait...';
 
         row.innerHTML = `
            <div class="col-chk"><div class="chk-box"></div></div>
@@ -443,26 +522,18 @@ function renderGrab(items) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><polyline points="21 15 16 10 5 21"></polyline></svg>
            </div>
            <div class="row-details">
-                <div class="file-name">${filename}</div>
+                <div class="file-name-row">
+                    <div class="file-name">${filename}</div>
+                    <button class="copy-url-btn" title="Copy URL">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    </button>
+                </div>
                 <div class="grab-meta-row">
                     <span class="grab-size-info">${displaySize}</span>
                     <span class="grab-url-sub">• ${i.url}</span>
                 </div>
            </div>`;
         fragment.appendChild(row);
-
-        if (!i.cachedSize) {
-            chrome.runtime.sendMessage({ action: 'check_url', url: i.url }, (res) => {
-                if (res && res.success) {
-                    i.cachedSize = res.size;
-                    const el = grabList.querySelector(`.grab-row[data-url="${i.url}"] .grab-size-info`);
-                    if (el) el.innerText = formatBytes(res.size);
-                } else {
-                    const el = grabList.querySelector(`.grab-row[data-url="${i.url}"] .grab-size-info`);
-                    if (el) el.innerText = 'Unknown';
-                }
-            });
-        }
     });
     grabList.appendChild(fragment);
     updateGrabberToolbarState();
@@ -471,19 +542,51 @@ function renderGrab(items) {
 scanBtn.onclick = performScan;
 rescanBtn.onclick = performScan;
 
-filterInput.addEventListener('input', (e) => {
-    const val = e.target.value.toLowerCase();
-    const filtered = grabberLinks.filter(i => (i.url.split('/').pop() || '').toLowerCase().includes(val) || i.url.toLowerCase().includes(val));
+function applyCurrentFilter() {
+    const val = filterInput.value.toLowerCase();
+
+    // Jika kotak filter kosong, tampilkan semua
+    if (!val) {
+        renderGrab(grabberLinks);
+        return;
+    }
+
+    // Jika ada teks, saring array grabberLinks
+    const filtered = grabberLinks.filter(i =>
+        (i.url.split('/').pop() || '').toLowerCase().includes(val) ||
+        i.url.toLowerCase().includes(val)
+    );
     renderGrab(filtered);
-});
+}
+
+// Event listener filter sekarang memanggil fungsi terpusat
+filterInput.addEventListener('input', applyCurrentFilter);
 
 grabSelectAllBtn.onclick = () => {
     const rows = grabList.querySelectorAll('.grab-row');
     const currentlyAllSelected = Array.from(rows).every(r => r.classList.contains('selected'));
-    rows.forEach(r => {
-        if(currentlyAllSelected) r.classList.remove('selected');
-        else r.classList.add('selected');
-    });
+
+    if (currentlyAllSelected) {
+        rows.forEach(r => r.classList.remove('selected'));
+
+        checkQueue.forEach(({ item, row }) => {
+            item.isChecking = false;
+            const sizeEl = row.querySelector('.grab-size-info');
+            if (sizeEl) sizeEl.innerText = '-';
+        });
+
+        checkQueue = [];
+
+    } else {
+        rows.forEach(r => {
+            r.classList.add('selected');
+            // Masukkan ke antrean dengan tertib
+            const url = r.dataset.url;
+            const item = grabberLinks.find(i => i.url === url);
+            if (item) queueCheckItemSize(item, r);
+        });
+    }
+
     updateGrabberToolbarState();
 };
 
@@ -498,13 +601,23 @@ downloadSelectedBtn.onclick = () => {
 async function performScan() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) return;
+
+    checkQueue = [];
+    isCheckingQueue = false;
+
     document.getElementById('grabberInit').classList.add('hidden');
     document.getElementById('grabberResults').classList.remove('hidden');
     grabList.innerHTML = '<div class="empty-state"><p>Scanning...</p></div>';
+
     chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }, (results) => {
         if (!chrome.runtime.lastError && results && results[0]) {
-            grabberLinks = results[0].result || [];
-            renderGrab(grabberLinks);
+            grabberLinks = (results[0].result || []).map(link => ({
+                ...link,
+                cachedSize: undefined,
+                isChecking: false
+            }));
+
+            applyCurrentFilter();
         }
     });
 }
@@ -521,7 +634,6 @@ function showToast(msg) {
     setTimeout(() => t.remove(), 2500);
 }
 
-// Fungsi Modal Confirmation (Restored)
 function showConfirm(title, text, btnText, cb) {
     if (!confirmModal) return;
 
@@ -532,7 +644,6 @@ function showConfirm(title, text, btnText, cb) {
     modalOk.classList.add('confirm');
     confirmModal.classList.add('active');
 
-    // One-time event listener cleaner
     const cleanup = () => {
         confirmModal.classList.remove('active');
         modalOk.classList.remove('confirm');

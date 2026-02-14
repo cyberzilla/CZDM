@@ -19,18 +19,32 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
     // 1. Validasi awal secepat mungkin untuk menghindari loop dari CZDM sendiri
     if (downloadItem.byExtensionId === chrome.runtime.id) return;
 
-    // FIX 1: Tolak URL yang bukan http/https (Abaikan blob:, data:, chrome://, file://)
-    // CZDM background script tidak bisa melakukan fetch ke blob URL milik tab webpage
+    // FIX 1: Tolak URL yang bukan http/https
     if (!downloadItem.url || (!downloadItem.url.startsWith('http://') && !downloadItem.url.startsWith('https://'))) {
         return;
     }
 
-    // FIX 2: Perbaiki logika parsing ekstensi secara aman
-    const filename = downloadItem.filename || "";
-    const fileExt = filename.includes('.') ? filename.split('.').pop().toLowerCase() : "";
-
-    // 2. Tentukan kriteria intersepsi
+    // 2. Tentukan kriteria ekstensi yang ingin ditangkap
     const interceptExts = ['zip', 'rar', '7z', 'iso', 'exe', 'msi', 'apk', 'mp4', 'mkv', 'avi', 'mp3', 'pdf', 'dmg', 'pkg'];
+
+    // FIX 2: Perbaiki logika parsing ekstensi (Cek Filename)
+    const filename = downloadItem.filename || "";
+    let fileExt = filename.includes('.') ? filename.split('.').pop().toLowerCase() : "";
+
+    // FIX 3 (BARU): Jika ekstensi tidak dikenali dari nama, bedah URL-nya (Untuk link GitHub/AWS)
+    if (!interceptExts.includes(fileExt)) {
+        try {
+            // Decode URL (mengubah %3D menjadi =, dsb)
+            const decodedUrl = decodeURIComponent(downloadItem.url).toLowerCase();
+            // Cari apakah di dalam URL ada string seperti ".zip", ".rar", dsb
+            const matchedExt = interceptExts.find(ext => decodedUrl.includes(`.${ext}`));
+            if (matchedExt) {
+                fileExt = matchedExt; // Gunakan ekstensi yang ditemukan dari URL
+            }
+        } catch (e) {
+            console.error("URL Decode Error:", e);
+        }
+    }
 
     // Periksa apakah URL atau ekstensi cocok
     const isMatched = interceptExts.includes(fileExt) || downloadItem.fileSize > 5 * 1024 * 1024;
@@ -157,22 +171,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.action === "get_tasks") sendResponse(Array.from(tasks.values()));
     else if (msg.action === "check_url") {
         const checkTargetUrl = parseGoogleDriveLink(msg.url);
-        fetch(checkTargetUrl, {method: 'GET', headers: {'Range': 'bytes=0-0'}})
-            .then(resp => {
-                if (!resp.ok && resp.status !== 206) throw new Error('Fail');
+
+        (async () => {
+            // FIX: Tambahkan AbortController untuk Timeout (Maksimal 5 detik)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            try {
+                let resp = await fetch(checkTargetUrl, {
+                    method: 'HEAD',
+                    signal: controller.signal // Pasang signal pembunuh
+                });
+
+                if (!resp.ok) {
+                    resp = await fetch(checkTargetUrl, {
+                        method: 'GET',
+                        headers: { 'Range': 'bytes=0-0' },
+                        signal: controller.signal
+                    });
+                }
+
+                if (resp.status === 401 || resp.status === 403) {
+                    resp = await fetch(checkTargetUrl, {
+                        method: 'GET',
+                        headers: { 'Range': 'bytes=0-0' },
+                        credentials: 'include',
+                        signal: controller.signal
+                    });
+                }
+
+                // Bersihkan timeout jika server merespons sebelum 5 detik
+                clearTimeout(timeoutId);
+
+                if (!resp.ok && resp.status !== 206 && resp.status !== 200) {
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+
                 let size = 0;
                 const contentRange = resp.headers.get('content-range');
                 if (contentRange) size = parseInt(contentRange.split('/')[1]);
                 else size = parseInt(resp.headers.get('content-length') || 0);
+
                 let name = checkTargetUrl.split('/').pop().split('?')[0];
                 const disp = resp.headers.get('content-disposition');
                 if (disp && disp.includes('filename=')) {
                     name = disp.split('filename=')[1].replace(/["']/g, '').trim();
                 }
-                try {
-                    name = decodeURIComponent(name);
-                } catch (e) {
-                }
+
+                try { name = decodeURIComponent(name); } catch (e) {}
+
                 sendResponse({
                     success: true,
                     size: size,
@@ -180,12 +227,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     mime: resp.headers.get('content-type') || 'unknown',
                     checksum: (resp.headers.get('etag') || '-').replace(/["']/g, '')
                 });
-            }).catch((err) => {
-            console.error("Check URL Error:", err);
-            sendResponse({success: false});
-        });
+
+            } catch (err) {
+                clearTimeout(timeoutId);
+                sendResponse({ success: false });
+            }
+        })();
+
         return true;
-    } else if (msg.action === "pause_task") {
+    }  else if (msg.action === "pause_task") {
         const task = tasks.get(msg.id);
         if (task && (task.status === 'running' || task.status === 'queued')) {
             task.status = 'paused';
