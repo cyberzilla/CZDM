@@ -8,6 +8,7 @@
   "author": "Cyberzilla",
   "permissions": [
     "downloads",
+    "downloads.open",
     "storage",
     "unlimitedStorage",
     "offscreen",
