@@ -134,16 +134,18 @@ async function restoreState() {
     if (res.tasks) {
         tasks = new Map(res.tasks);
         tasks.forEach(t => {
-            if (t.status === 'running' || t.status === 'assembling') t.status = 'queued';
+            if (t.status === 'running' || t.status === 'assembling' || t.status === 'queued') {
+                t.status = 'paused';
+            }
             t.speed = 0;
             t.prevLoaded = t.loaded;
+
             if (t.threadStates && t.threadStates.length > 0) {
                 t.threads = t.threadStates;
             } else {
                 t.threads = [];
             }
         });
-        processQueue();
         updateBadge();
     }
     startBroadcastLoop();
