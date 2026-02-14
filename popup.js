@@ -108,9 +108,9 @@ function loadManifestInfo() {
 
         if (appVersion) appVersion.innerText = `v${manifest.version}`;
         if (appDesc) appDesc.innerText = manifest.description;
-        if (appHeaderName) appHeaderName.innerText = manifest.short_name || manifest.name;
+        if (appHeaderName) appHeaderName.innerText = manifest.short_name || 'CzDM';
         if (aboutAppName) aboutAppName.innerText = manifest.short_name || 'CzDM';
-        if (aboutAppFullName) aboutAppFullName.innerText = manifest.name;
+        if (aboutAppFullName) aboutAppFullName.innerText = manifest.full_name;
         if (appDeveloper) appDeveloper.innerText = `© ${new Date().getFullYear()} ${manifest.author || 'Cyberzilla'}`;
     } catch (e) {
         console.error("Gagal memuat info manifest:", e);
