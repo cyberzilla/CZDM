@@ -1,5 +1,3 @@
-// background.js - CZDM Engine v1.6 (Bulletproof Assembly & UI Sync)
-
 const DB_NAME = 'CZDM_DB';
 const DB_VERSION = 1;
 let db = null;
@@ -11,13 +9,25 @@ const SAVE_INTERVAL = 2000;
 let broadcastInterval = null;
 
 let appSettings = {
+    theme: 'auto',
     autoOverride: true,
     maxConcurrent: 3,
     maxThreads: 8,
     interceptExts: 'zip, rar, 7z, iso, exe, msi, apk, mp4, mkv, avi, mp3, pdf, dmg, pkg',
     minSizeMB: 5,
-    notifications: true
+    notifications: true,
+    downloadLocation: 'default' // Default location setting
 };
+
+chrome.alarms.create("czdm_keepalive", { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "czdm_keepalive") {
+        const hasRunning = Array.from(tasks.values()).some(t => t.status === 'running' || t.status === 'assembling');
+        if (hasRunning) {
+            console.log("[CZDM] Keep-alive ping to hold Service Worker");
+        }
+    }
+});
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'local' && changes.settings) {
@@ -26,7 +36,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     }
 });
 
-// FIX 1: Notifikasi dibungkus Try-Catch agar tidak merusak eksekusi lain
 function notifyUser(title, message) {
     try {
         if (!appSettings.notifications) return;
@@ -37,7 +46,7 @@ function notifyUser(title, message) {
             message: message || 'Unknown file'
         });
     } catch (e) {
-        console.warn("Notification error (Check manifest permissions):", e);
+        console.warn("Notification error:", e);
     }
 }
 
@@ -125,6 +134,23 @@ function initDB() {
     });
 }
 
+async function runGarbageCollector() {
+    if (!db) await initDB();
+    const tx = db.transaction(['chunks'], 'readwrite');
+    const store = tx.objectStore('chunks');
+    const request = store.openCursor();
+    request.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+            const taskId = cursor.value.taskId;
+            if (!tasks.has(taskId)) {
+                cursor.delete();
+            }
+            cursor.continue();
+        }
+    };
+}
+
 function saveState(force = false) {
     const now = Date.now();
     if (!force && (now - lastSaveTime < SAVE_INTERVAL)) return;
@@ -166,6 +192,7 @@ async function restoreState() {
         updateBadge();
     }
     startBroadcastLoop();
+    runGarbageCollector();
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -255,7 +282,7 @@ function updateBadge() {
             chrome.action.setBadgeText({text: count.toString()});
             chrome.action.setBadgeBackgroundColor({color: '#3b82f6'});
         } else {
-            chrome.action.setBadgeText({text: ''}); // Menghapus badge saat nol
+            chrome.action.setBadgeText({text: ''});
         }
     } catch (e) {}
 }
@@ -294,7 +321,7 @@ async function startDownload(task) {
         if (response.status === 401 || response.status === 403) {
             response = await fetch(task.url, { method: 'GET', headers: {'Range': 'bytes=0-0'}, signal: masterController.signal, credentials: 'include' });
             if (response.ok || response.status === 206) task.useCredentials = true;
-            else throw new Error(`Access Denied (HTTP ${response.status})`);
+            else throw new Error(`Access Denied (HTTP ${response.status}). Token might be expired.`);
         } else if (!response.ok && response.status !== 206) {
             throw new Error(`HTTP Error ${response.status}`);
         }
@@ -330,6 +357,8 @@ async function startDownload(task) {
                 if (optimalThreads === 1) end = task.total > 0 ? task.total - 1 : 0;
                 task.threads.push({index: i, start, end, current: start, complete: false});
             }
+        } else if (!task.isResumable) {
+            task.threads = [{index: 0, start: 0, end: task.total > 0 ? task.total - 1 : 0, current: 0, complete: false}];
         }
 
         saveState(true); broadcast();
@@ -338,7 +367,6 @@ async function startDownload(task) {
         if (task.status === 'running') triggerAssembly(task);
 
     } catch (e) {
-        // FIX 2: Amankan Error Handler
         const isAbort = e.name === 'AbortError';
         if (!isAbort) {
             console.error(`[BG] Error Task ${task.id}:`, e);
@@ -346,13 +374,10 @@ async function startDownload(task) {
         }
 
         activeControllers.delete(task.id);
-
-        // Amankan UI & Badge terlebih dahulu
         saveState(true);
         broadcast();
         processQueue();
 
-        // Munculkan notifikasi di akhir
         if (!isAbort) {
             notifyUser('Download Failed', task.filename);
         }
@@ -362,7 +387,12 @@ async function startDownload(task) {
 async function downloadThread(task, threadInfo, signal) {
     const downloadUrl = task.finalUrl || task.url;
     let offset = threadInfo.current;
-    if (!task.isResumable && offset > 0) { offset = 0; if (task.threads.length === 1) task.loaded = 0; }
+
+    if (!task.isResumable && offset > 0) {
+        offset = 0;
+        if (task.threads.length === 1) task.loaded = 0;
+    }
+
     const headers = {};
     if (task.isResumable || task.total > 0) {
         const endRange = (threadInfo.end > 0 && threadInfo.end >= offset) ? threadInfo.end : '';
@@ -426,7 +456,7 @@ function cancelTask(id) {
 
 function broadcast() {
     const list = Array.from(tasks.values());
-    updateBadge(); // Menghapus/update badge berdasarkan jumlah task
+    updateBadge();
     chrome.runtime.sendMessage({action: "update_list", tasks: list}).catch(() => {});
 }
 
@@ -448,21 +478,21 @@ async function triggerAssembly(task) {
     }
 }
 
-// FIX 3: Amankan laporan perakitan agar badge dihapus SEBELUM hal lain terjadi
 function handleAssemblyReport(msg) {
     const task = tasks.get(msg.taskId);
     if (!task) return;
 
     if (msg.success && msg.blobUrl) {
-        chrome.downloads.download({url: msg.blobUrl, filename: task.filename, saveAs: false}, (id) => {
+        // Implementasi Custom Destination flag
+        const askWhereToSave = appSettings.downloadLocation === 'custom';
+
+        chrome.downloads.download({url: msg.blobUrl, filename: task.filename, saveAs: askWhereToSave}, (id) => {
             task.status = chrome.runtime.lastError ? 'error' : 'completed';
 
-            // Amankan UI & Badge TERLEBIH DAHULU (Penting!)
             saveState(true);
             broadcast();
             processQueue();
 
-            // Lakukan pembersihan dan notifikasi di akhir
             if (!chrome.runtime.lastError) {
                 cleanupDB(msg.taskId);
                 notifyUser('Download Complete', task.filename);

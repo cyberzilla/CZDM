@@ -1,6 +1,3 @@
-// popup.js - UI Logic for CZDM
-// VERSION: Theme Switcher & Setting Configurator
-
 document.addEventListener('contextmenu', (event) => {
     if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
         event.preventDefault();
@@ -15,6 +12,7 @@ let isCheckingQueue = false;
 
 const DEFAULT_SETTINGS = {
     theme: 'auto',
+    downloadLocation: 'default',
     autoOverride: true,
     maxConcurrent: 3,
     maxThreads: 8,
@@ -38,6 +36,7 @@ const toolClear = document.getElementById('toolClear');
 
 // Settings Elements
 const sTheme = document.getElementById('sTheme');
+const sDownloadLocation = document.getElementById('sDownloadLocation');
 const sAutoOverride = document.getElementById('sAutoOverride');
 const sInterceptExts = document.getElementById('sInterceptExts');
 const sMinSize = document.getElementById('sMinSize');
@@ -68,13 +67,9 @@ const grabSelectAllBtn = document.getElementById('grabSelectAllBtn');
 const filterInput = document.getElementById('filterInput');
 const grabCountLabel = document.getElementById('grabCountLabel');
 
-const appVersion = document.getElementById('appVersion');
-const appDesc = document.getElementById('appDesc');
-
 let addUrlTimeout = null;
 let settingsSaveTimeout = null;
 
-// --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
     loadManifestInfo();
     loadSettings();
@@ -90,12 +85,24 @@ document.addEventListener('DOMContentLoaded', () => {
 function loadManifestInfo() {
     try {
         const manifest = chrome.runtime.getManifest();
+
+        const appHeaderName = document.getElementById('appHeaderName');
+        const aboutAppName = document.getElementById('aboutAppName');
+        const aboutAppFullName = document.getElementById('aboutAppFullName');
+        const appDeveloper = document.getElementById('appDeveloper');
+        const appVersion = document.getElementById('appVersion');
+        const appDesc = document.getElementById('appDesc');
+
         if (appVersion) appVersion.innerText = `v${manifest.version}`;
         if (appDesc) appDesc.innerText = manifest.description;
-    } catch (e) {}
+        if (appHeaderName) appHeaderName.innerText = manifest.short_name || "CzDM";
+        if (aboutAppName) aboutAppName.innerText = manifest.short_name || "CzDM";
+        if (aboutAppFullName) aboutAppFullName.innerText = manifest.full_name;
+        if (appDeveloper) appDeveloper.innerText = `© ${new Date().getFullYear()} ${manifest.author || 'Cyberzilla'}`;
+    } catch (e) {
+        console.error("Gagal memuat info manifest:", e);
+    }
 }
-
-// --- SETTINGS LOGIC & THEME CHANGER ---
 
 function applyTheme(themeValue) {
     if (themeValue === 'dark') {
@@ -121,6 +128,7 @@ function loadSettings() {
     chrome.storage.local.get('settings', (res) => {
         const s = Object.assign({}, DEFAULT_SETTINGS, res.settings || {});
         sTheme.value = s.theme;
+        sDownloadLocation.value = s.downloadLocation || 'default';
         sAutoOverride.checked = s.autoOverride;
         sInterceptExts.value = s.interceptExts;
         sMinSize.value = s.minSizeMB;
@@ -135,6 +143,7 @@ function loadSettings() {
 function saveSettings() {
     const newSettings = {
         theme: sTheme.value,
+        downloadLocation: sDownloadLocation.value,
         autoOverride: sAutoOverride.checked,
         interceptExts: sInterceptExts.value,
         minSizeMB: parseInt(sMinSize.value) || 5,
@@ -149,8 +158,7 @@ function saveSettings() {
     });
 }
 
-// Auto-save listeners
-[sTheme, sAutoOverride, sMinSize, sMaxConcurrent, sMaxThreads, sNotifications].forEach(el => {
+[sTheme, sDownloadLocation, sAutoOverride, sMinSize, sMaxConcurrent, sMaxThreads, sNotifications].forEach(el => {
     if(el) el.addEventListener('change', saveSettings);
 });
 
@@ -161,7 +169,6 @@ if (sInterceptExts) {
     });
 }
 
-// Tab Navigation
 const tabs = document.querySelectorAll('.tab-btn');
 const panes = document.querySelectorAll('.tab-pane');
 tabs.forEach(tab => {
@@ -207,7 +214,6 @@ function requestUpdate(isInit) {
     });
 }
 
-// --- CORE LOGIC: DASHBOARD ---
 listContainer.addEventListener('click', (e) => {
     const copyBtn = e.target.closest('.copy-url-btn');
     if (copyBtn) {
@@ -454,7 +460,6 @@ function triggerUrlCheck(url) {
 }
 addConfirm.onclick = () => { if (newUrlInput.value) { chrome.runtime.sendMessage({ action: "add_task", url: newUrlInput.value }); addModal.classList.remove('active'); showToast('Added to queue'); } };
 
-// --- GRABBER LOGIC ---
 function updateGrabberToolbarState() {
     const rows = Array.from(grabList.querySelectorAll('.grab-row'));
     if (rows.length === 0) {
@@ -668,7 +673,6 @@ async function performScan() {
     });
 }
 
-// --- UTILS ---
 function formatBytes(bytes) { if (!+bytes) return '0 B'; const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k)); return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`; }
 function formatSpeed(s) { return (!s || s < 0) ? '0 B/s' : formatBytes(s) + '/s'; }
 

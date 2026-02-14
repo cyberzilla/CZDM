@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "CZDM - Cyberzilla Download Manager",
-  "version": "1.0.0",
+  "name": "CzDM - Cyberzilla Download Manager",
+  "short_name": "CzDM",
+  "full_name": "Cyberzilla Download Manager",
+  "version": "1.0.1",
   "description": "Simple Download Manager with multi-thread acceleration, Smart Media Grabber, Resume capability, and anti-corruption technology.",
+  "author": "Cyberzilla",
   "permissions": [
     "downloads",
     "storage",
@@ -12,7 +15,8 @@
     "activeTab",
     "contextMenus",
     "clipboardRead",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
