@@ -1,155 +1,220 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CZDM Manager</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <title>CzDM - Cyberzilla Download Manager</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <div id="loadingOverlay" class="loading-overlay">
-    <div class="spinner"></div>
-  </div>
-
-  <div id="toastContainer" class="toast-container"></div>
-
-  <div id="confirmModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-title" id="modalTitle">Confirm Action</div>
-      <div class="modal-text" id="modalText">...</div>
-      <div class="modal-actions">
-        <button class="modal-btn" id="modalCancel">Cancel</button>
-        <button class="modal-btn confirm" id="modalOk">Yes</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="addModal" class="modal-overlay">
-    <div class="modal-box large">
-      <div class="modal-title">Add Download URL</div>
-      <div class="input-group-row">
-        <input type="text" id="newUrlInput" placeholder="Paste URL here..." autocomplete="off">
-        <button id="pasteBtn" class="btn-icon-sm" title="Paste from Clipboard">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
-        </button>
-      </div>
-      <div id="urlDetails" class="url-details hidden"></div>
-      <div class="modal-actions">
-        <button class="modal-btn" id="addCancel">Cancel</button>
-        <button class="modal-btn primary" id="addConfirm" disabled>Download</button>
-      </div>
-    </div>
-  </div>
-
-  <header>
+<header>
     <div class="brand">
-      <img src="img/48x48.png" width="24" height="24" alt="Icon">
-      <span>CZDM</span>
+        <img src="img/48x48.png" width="24" height="24" alt="CZDM">
+        <span>CzDM</span>
     </div>
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-      <button class="tab-btn" data-tab="grabber">Grabber</button>
-      <button class="tab-btn" data-tab="about">About</button>
-    </nav>
-  </header>
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-btn" data-tab="grabber">Grabber</button>
+        <button class="tab-btn" data-tab="about">About</button>
+        <button class="tab-btn" data-tab="settings" title="Settings" style="display: flex; align-items: center; justify-content: center; padding: 0 10px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+    </div>
+</header>
 
-  <main>
+<main>
     <div id="dashboard" class="tab-pane active">
-      <div class="toolbar-fixed">
-        <button id="toolAdd" class="tool-btn primary" title="Add New Download">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>Add URL</span>
-        </button>
-        <div class="v-divider"></div>
-        <button id="toolStart" class="tool-btn" title="Start/Resume Selected" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          <span>Start</span>
-        </button>
-        <button id="toolPause" class="tool-btn" title="Pause Selected" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-          <span>Pause</span>
-        </button>
-        <button id="toolDelete" class="tool-btn danger" title="Delete Selected" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          <span>Delete</span>
-        </button>
-        <div class="spacer"></div>
-        <button id="toolSelectAll" class="tool-btn" title="Select All Items">
-           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-           <span>Select All</span>
-        </button>
-        <button id="toolClear" class="tool-btn" title="Clear Completed">
-           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-           <span>Clear</span>
-        </button>
-      </div>
-
-      <div id="listContainer" class="list-scroll-area"></div>
+        <div class="toolbar-fixed">
+            <button class="tool-btn primary" id="toolAdd">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add URL</span>
+            </button>
+            <div class="v-divider"></div>
+            <button class="tool-btn" id="toolStart" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Start</span>
+            </button>
+            <button class="tool-btn" id="toolPause" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                <span>Pause</span>
+            </button>
+            <button class="tool-btn danger" id="toolDelete" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>Delete</span>
+            </button>
+            <div class="spacer"></div>
+            <button class="tool-btn" id="toolSelectAll">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                <span>Select All</span>
+            </button>
+            <button class="tool-btn danger" id="toolClear">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
+                <span>Clear All</span>
+            </button>
+        </div>
+        <div class="list-scroll-area" id="listContainer"></div>
     </div>
 
     <div id="grabber" class="tab-pane">
-       <div id="grabberInit" class="grabber-center">
-        <div class="scan-promo">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <p>Scan current webpage for media files.</p>
-          <button id="scanBtn" class="btn-hero">
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-             <span>Start Scan</span>
-          </button>
+        <div id="grabberInit" class="grabber-layout">
+            <div class="grabber-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 64px; height: 64px; color: var(--primary); margin-bottom: 20px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                <h3 style="margin-top:0">Smart File Detection</h3>
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 25px; max-width: 80%;">CZDM can analyze the current open page to extract hidden media, videos, and documents.</p>
+                <button class="btn-hero" id="scanBtn">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    Scan Current Page
+                </button>
+            </div>
         </div>
-      </div>
+        <div id="grabberBlocked" class="hidden grabber-layout">
+            <div class="grabber-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 64px; height: 64px; color: var(--danger); margin-bottom: 20px;"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
+                <h3 style="margin-top:0">Protected Page</h3>
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 25px; max-width: 80%;">Browser policy prevents extensions from scanning system pages or the Web Store.</p>
+            </div>
+        </div>
+        <div id="grabberResults" class="hidden grabber-layout">
+            <div class="toolbar-fixed">
+                <button class="tool-btn primary" id="downloadSelectedBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Download</span>
+                </button>
+                <button class="tool-btn" id="rescanBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    <span>Rescan</span>
+                </button>
+                <div class="v-divider"></div>
+                <button class="tool-btn" id="grabSelectAllBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>Select All</span>
+                </button>
+                <div class="spacer"></div>
+                <div class="filter-wrapper">
+                    <input type="text" id="filterInput" class="toolbar-input" placeholder="Filter files (e.g. mp4)">
+                    <div class="count-label" id="grabCountLabel">Found: 0</div>
+                </div>
+            </div>
+            <div class="list-scroll-area" id="grabList"></div>
+        </div>
+    </div>
 
-      <div id="grabberResults" class="grabber-layout hidden">
-         <div class="toolbar-fixed">
-            <button id="downloadSelectedBtn" class="tool-btn primary" title="Download Selected">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <span>Download</span>
-            </button>
-            <div class="v-divider"></div>
-            <button id="grabSelectAllBtn" class="tool-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-                <span>Select All</span>
-            </button>
-             <button id="rescanBtn" class="tool-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                <span>Rescan</span>
-            </button>
-            <div class="spacer"></div>
-             <div class="filter-wrapper">
-                <input type="text" id="filterInput" class="toolbar-input" placeholder="Filter files...">
-                <div id="grabCountLabel" class="count-label">Found: 0</div>
-             </div>
-         </div>
-         <div id="grabList" class="list-scroll-area"></div>
-      </div>
+    <div id="settings" class="tab-pane list-scroll-area">
+        <div class="settings-container">
 
-      <div id="grabberBlocked" class="grabber-center hidden">
-         <div class="scan-promo">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-            <p style="color:var(--text)">This page is restricted.</p>
-         </div>
-      </div>
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Appearance Theme</span>
+                    <span class="set-desc">Choose Light or Dark mode.</span>
+                </div>
+                <select id="sTheme" class="set-input short" style="width: 120px;">
+                    <option value="auto">Auto</option>
+                    <option value="light">Light Mode</option>
+                    <option value="dark">Dark Mode</option>
+                </select>
+            </div>
+
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Auto Intercept Downloads</span>
+                    <span class="set-desc">Automatically catch file downloads from the browser.</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="sAutoOverride"><span class="slider"></span></label>
+            </div>
+
+            <div class="set-group col">
+                <div class="set-info">
+                    <span class="set-title">Intercepted Extensions</span>
+                    <span class="set-desc">File types that will be caught regardless of size (comma separated).</span>
+                </div>
+                <input type="text" id="sInterceptExts" class="set-input" placeholder="zip, rar, mp4...">
+            </div>
+
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Minimum File Size (MB)</span>
+                    <span class="set-desc">Catch unknown files larger than this size.</span>
+                </div>
+                <input type="number" id="sMinSize" class="set-input short" min="0" max="5000">
+            </div>
+
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Max Concurrent Downloads</span>
+                    <span class="set-desc">Files downloading at the same time. Excess will be queued.</span>
+                </div>
+                <input type="number" id="sMaxConcurrent" class="set-input short" min="1" max="10">
+            </div>
+
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Max Threads per Download</span>
+                    <span class="set-desc">Split files into parts for faster speed. Max 16.</span>
+                </div>
+                <input type="number" id="sMaxThreads" class="set-input short" min="1" max="16">
+            </div>
+
+            <div class="set-group">
+                <div class="set-info">
+                    <span class="set-title">Desktop Notifications</span>
+                    <span class="set-desc">Show OS notification when download completes or fails.</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="sNotifications"><span class="slider"></span></label>
+            </div>
+
+        </div>
     </div>
 
     <div id="about" class="tab-pane">
-      <div class="about-wrapper">
-        <div class="about-card">
-          <img src="img/128x128.png" alt="Logo" class="app-logo-lg">
-          <h2>CZDM</h2>
-          <div class="version-badge" id="appVersion">v...</div>
-          <p class="about-desc" id="appDesc">Loading description...</p>
-          
-          <a href="https://github.com/cyberzilla/CZDM" target="_blank" class="github-link">
-             <svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-             GitHub Repository
-          </a>
+        <div class="about-wrapper">
+            <div class="about-card">
+                <img src="img/128x128.png" alt="Logo" class="app-logo-lg">
+                <h2>CzDM</h2>
+                <div class="version-badge" id="appVersion">v1.0.0</div>
+                <div class="about-desc" id="appDesc">High-speed modular download manager.</div>
 
-          <div style="font-size:12px; color:#94a3af">© 2026 Cyberzilla</div>
+                <a href="https://github.com/cyberzilla/CZDM" target="_blank" class="github-link">
+                    <svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+                    GitHub Repository
+                </a>
+
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 10px;">© 2026 Cyberzilla</div>
+            </div>
         </div>
-      </div>
     </div>
-  </main>
-  <script src="popup.js"></script>
+</main>
+
+<div class="modal-overlay" id="addModal">
+    <div class="modal-box">
+        <div class="modal-title">Add New Download</div>
+        <div class="input-group-row">
+            <input type="text" id="newUrlInput" placeholder="https://example.com/file.zip" autocomplete="off" spellcheck="false">
+            <button class="btn-icon-sm" id="pasteBtn" title="Paste from clipboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+            </button>
+        </div>
+        <div id="urlDetails" class="url-details hidden"></div>
+        <div class="modal-actions">
+            <button class="modal-btn" id="addCancel">Cancel</button>
+            <button class="modal-btn primary" id="addConfirm" disabled>Download Now</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="confirmModal">
+    <div class="modal-box">
+        <div class="modal-title" id="modalTitle">Confirm Action</div>
+        <p style="font-size: 13px; color: var(--text-muted); margin:0 0 20px 0;" id="modalText">Are you sure?</p>
+        <div class="modal-actions">
+            <button class="modal-btn" id="modalCancel">Cancel</button>
+            <button class="modal-btn" id="modalOk">OK</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+<script src="popup.js"></script>
 </body>
 </html>

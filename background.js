@@ -1,67 +1,74 @@
-// background.js - CZDM Engine v1.3 (Anti-Native Popup Optimization)
-// Resource-friendly storage management & Corruption-proof assembly
+// background.js - CZDM Engine v1.6 (Bulletproof Assembly & UI Sync)
 
 const DB_NAME = 'CZDM_DB';
 const DB_VERSION = 1;
 let db = null;
 let tasks = new Map();
 let activeControllers = new Map();
-
-const MAX_CONCURRENT_DOWNLOADS = 3;
 const CHUNK_SIZE = 1024 * 1024 * 1;
-
 let lastSaveTime = 0;
 const SAVE_INTERVAL = 2000;
 let broadcastInterval = null;
 
-// --- OPTIMIZED AUTO-DOWNLOAD INTERCEPTOR ---
-chrome.downloads.onCreated.addListener((downloadItem) => {
-    // 1. Validasi awal secepat mungkin untuk menghindari loop dari CZDM sendiri
-    if (downloadItem.byExtensionId === chrome.runtime.id) return;
+let appSettings = {
+    autoOverride: true,
+    maxConcurrent: 3,
+    maxThreads: 8,
+    interceptExts: 'zip, rar, 7z, iso, exe, msi, apk, mp4, mkv, avi, mp3, pdf, dmg, pkg',
+    minSizeMB: 5,
+    notifications: true
+};
 
-    // FIX 1: Tolak URL yang bukan http/https
-    if (!downloadItem.url || (!downloadItem.url.startsWith('http://') && !downloadItem.url.startsWith('https://'))) {
-        return;
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.settings) {
+        appSettings = Object.assign({}, appSettings, changes.settings.newValue);
+        processQueue();
     }
+});
 
-    // 2. Tentukan kriteria ekstensi yang ingin ditangkap
-    const interceptExts = ['zip', 'rar', '7z', 'iso', 'exe', 'msi', 'apk', 'mp4', 'mkv', 'avi', 'mp3', 'pdf', 'dmg', 'pkg'];
+// FIX 1: Notifikasi dibungkus Try-Catch agar tidak merusak eksekusi lain
+function notifyUser(title, message) {
+    try {
+        if (!appSettings.notifications) return;
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'img/128x128.png',
+            title: title,
+            message: message || 'Unknown file'
+        });
+    } catch (e) {
+        console.warn("Notification error (Check manifest permissions):", e);
+    }
+}
 
-    // FIX 2: Perbaiki logika parsing ekstensi (Cek Filename)
+chrome.downloads.onCreated.addListener((downloadItem) => {
+    if (!appSettings.autoOverride) return;
+    if (downloadItem.byExtensionId === chrome.runtime.id) return;
+    if (!downloadItem.url || (!downloadItem.url.startsWith('http://') && !downloadItem.url.startsWith('https://'))) return;
+
+    const interceptExts = appSettings.interceptExts.split(',').map(e => e.trim().toLowerCase()).filter(e => e);
+
     const filename = downloadItem.filename || "";
     let fileExt = filename.includes('.') ? filename.split('.').pop().toLowerCase() : "";
 
-    // FIX 3 (BARU): Jika ekstensi tidak dikenali dari nama, bedah URL-nya (Untuk link GitHub/AWS)
     if (!interceptExts.includes(fileExt)) {
         try {
-            // Decode URL (mengubah %3D menjadi =, dsb)
             const decodedUrl = decodeURIComponent(downloadItem.url).toLowerCase();
-            // Cari apakah di dalam URL ada string seperti ".zip", ".rar", dsb
             const matchedExt = interceptExts.find(ext => decodedUrl.includes(`.${ext}`));
-            if (matchedExt) {
-                fileExt = matchedExt; // Gunakan ekstensi yang ditemukan dari URL
-            }
-        } catch (e) {
-            console.error("URL Decode Error:", e);
-        }
+            if (matchedExt) fileExt = matchedExt;
+        } catch (e) {}
     }
 
-    // Periksa apakah URL atau ekstensi cocok
-    const isMatched = interceptExts.includes(fileExt) || downloadItem.fileSize > 5 * 1024 * 1024;
+    const isMatched = interceptExts.includes(fileExt) || downloadItem.fileSize > (appSettings.minSizeMB * 1024 * 1024);
 
     if (isMatched) {
-        // LANGKAH KRUSIAL: Batalkan segera
         chrome.downloads.cancel(downloadItem.id, () => {
-            // Hapus dari riwayat agar popup 'Cancelled' tidak muncul di bar browser
             chrome.downloads.erase({id: downloadItem.id});
-
-            // Masukkan ke engine CZDM
             queueDownload(downloadItem.url);
         });
     }
 });
 
-// --- GOOGLE DRIVE PARSER HELPER ---
 function parseGoogleDriveLink(url) {
     if (!url) return url;
     if (url.includes('drive.google.com')) {
@@ -126,11 +133,7 @@ function saveState(force = false) {
     const serialized = Array.from(tasks.entries()).map(([id, t]) => {
         const {speed, remainingTime, ...cleanTask} = t;
         cleanTask.threadStates = t.threads ? t.threads.map(th => ({
-            index: th.index,
-            start: th.start,
-            end: th.end,
-            current: th.current,
-            complete: th.complete
+            index: th.index, start: th.start, end: th.end, current: th.current, complete: th.complete
         })) : [];
         const taskCopy = JSON.parse(JSON.stringify(cleanTask));
         delete taskCopy.threads;
@@ -139,21 +142,21 @@ function saveState(force = false) {
     chrome.storage.local.set({'tasks': serialized});
 }
 
-function throttledSave() {
-    saveState(false);
-}
+function throttledSave() { saveState(false); }
 
 async function restoreState() {
-    const res = await chrome.storage.local.get('tasks');
+    const res = await chrome.storage.local.get(['tasks', 'settings']);
+
+    if (res.settings) {
+        appSettings = Object.assign({}, appSettings, res.settings);
+    }
+
     if (res.tasks) {
         tasks = new Map(res.tasks);
         tasks.forEach(t => {
-            if (t.status === 'running' || t.status === 'assembling' || t.status === 'queued') {
-                t.status = 'paused';
-            }
+            if (t.status === 'running' || t.status === 'assembling' || t.status === 'queued') t.status = 'paused';
             t.speed = 0;
             t.prevLoaded = t.loaded;
-
             if (t.threadStates && t.threadStates.length > 0) {
                 t.threads = t.threadStates;
             } else {
@@ -171,71 +174,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.action === "get_tasks") sendResponse(Array.from(tasks.values()));
     else if (msg.action === "check_url") {
         const checkTargetUrl = parseGoogleDriveLink(msg.url);
-
         (async () => {
-            // FIX: Tambahkan AbortController untuk Timeout (Maksimal 5 detik)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             try {
-                let resp = await fetch(checkTargetUrl, {
-                    method: 'HEAD',
-                    signal: controller.signal // Pasang signal pembunuh
-                });
-
-                if (!resp.ok) {
-                    resp = await fetch(checkTargetUrl, {
-                        method: 'GET',
-                        headers: { 'Range': 'bytes=0-0' },
-                        signal: controller.signal
-                    });
-                }
-
-                if (resp.status === 401 || resp.status === 403) {
-                    resp = await fetch(checkTargetUrl, {
-                        method: 'GET',
-                        headers: { 'Range': 'bytes=0-0' },
-                        credentials: 'include',
-                        signal: controller.signal
-                    });
-                }
-
-                // Bersihkan timeout jika server merespons sebelum 5 detik
+                let resp = await fetch(checkTargetUrl, { method: 'HEAD', signal: controller.signal });
+                if (!resp.ok) resp = await fetch(checkTargetUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' }, signal: controller.signal });
+                if (resp.status === 401 || resp.status === 403) resp = await fetch(checkTargetUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' }, credentials: 'include', signal: controller.signal });
                 clearTimeout(timeoutId);
-
-                if (!resp.ok && resp.status !== 206 && resp.status !== 200) {
-                    throw new Error(`HTTP ${resp.status}`);
-                }
-
+                if (!resp.ok && resp.status !== 206 && resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
                 let size = 0;
                 const contentRange = resp.headers.get('content-range');
                 if (contentRange) size = parseInt(contentRange.split('/')[1]);
                 else size = parseInt(resp.headers.get('content-length') || 0);
-
                 let name = checkTargetUrl.split('/').pop().split('?')[0];
                 const disp = resp.headers.get('content-disposition');
-                if (disp && disp.includes('filename=')) {
-                    name = disp.split('filename=')[1].replace(/["']/g, '').trim();
-                }
-
+                if (disp && disp.includes('filename=')) name = disp.split('filename=')[1].replace(/["']/g, '').trim();
                 try { name = decodeURIComponent(name); } catch (e) {}
-
-                sendResponse({
-                    success: true,
-                    size: size,
-                    filename: name || 'unknown',
-                    mime: resp.headers.get('content-type') || 'unknown',
-                    checksum: (resp.headers.get('etag') || '-').replace(/["']/g, '')
-                });
-
+                sendResponse({ success: true, size: size, filename: name || 'unknown', mime: resp.headers.get('content-type') || 'unknown', checksum: (resp.headers.get('etag') || '-').replace(/["']/g, '') });
+                controller.abort();
             } catch (err) {
                 clearTimeout(timeoutId);
                 sendResponse({ success: false });
             }
         })();
-
         return true;
-    }  else if (msg.action === "pause_task") {
+    } else if (msg.action === "pause_task") {
         const task = tasks.get(msg.id);
         if (task && (task.status === 'running' || task.status === 'queued')) {
             task.status = 'paused';
@@ -243,9 +207,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 activeControllers.get(task.id).abort();
                 activeControllers.delete(task.id);
             }
-            saveState(true);
-            broadcast();
-            processQueue();
+            saveState(true); broadcast(); processQueue();
         }
     } else if (msg.action === "resume_task") {
         const task = tasks.get(msg.id);
@@ -254,33 +216,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 activeControllers.get(task.id).abort();
                 activeControllers.delete(task.id);
             }
-            task.status = 'queued';
-            task.prevLoaded = task.loaded;
-            saveState(true);
-            broadcast();
-            processQueue();
+            task.status = 'queued'; task.prevLoaded = task.loaded;
+            saveState(true); broadcast(); processQueue();
         }
     } else if (msg.action === "cancel_task") cancelTask(msg.id);
     else if (msg.action === "clear_tasks") {
         tasks.forEach((task, id) => {
             if (task.status === 'completed' || task.status === 'error') {
-                cleanupDB(id);
-                tasks.delete(id);
+                cleanupDB(id); tasks.delete(id);
             }
         });
-        saveState(true);
-        broadcast();
-        updateBadge();
+        saveState(true); broadcast(); updateBadge();
     } else if (msg.action === "assembly_report") handleAssemblyReport(msg);
     return true;
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-    chrome.contextMenus.create({
-        id: "czdm-download",
-        title: "Download with CZDM",
-        contexts: ["link", "image", "video", "audio"]
-    });
+    chrome.contextMenus.create({ id: "czdm-download", title: "Download with CZDM", contexts: ["link", "image", "video", "audio"] });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -292,28 +244,28 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 function getRunningCount() {
     let count = 0;
-    tasks.forEach(t => {
-        if (t.status === 'running' || t.status === 'assembling') count++;
-    });
+    tasks.forEach(t => { if (t.status === 'running' || t.status === 'assembling') count++; });
     return count;
 }
 
 function updateBadge() {
-    const count = getRunningCount();
-    if (count > 0) {
-        chrome.action.setBadgeText({text: count.toString()});
-        chrome.action.setBadgeBackgroundColor({color: '#3b82f6'});
-    } else {
-        chrome.action.setBadgeText({text: ''});
-    }
+    try {
+        const count = getRunningCount();
+        if (count > 0) {
+            chrome.action.setBadgeText({text: count.toString()});
+            chrome.action.setBadgeBackgroundColor({color: '#3b82f6'});
+        } else {
+            chrome.action.setBadgeText({text: ''}); // Menghapus badge saat nol
+        }
+    } catch (e) {}
 }
 
 function processQueue() {
-    if (getRunningCount() >= MAX_CONCURRENT_DOWNLOADS) return;
+    if (getRunningCount() >= appSettings.maxConcurrent) return;
     for (const [id, task] of tasks) {
         if (task.status === 'queued') {
             startDownload(task);
-            if (getRunningCount() >= MAX_CONCURRENT_DOWNLOADS) break;
+            if (getRunningCount() >= appSettings.maxConcurrent) break;
         }
     }
     updateBadge();
@@ -323,38 +275,24 @@ async function queueDownload(rawUrl) {
     const url = parseGoogleDriveLink(rawUrl);
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 5);
     const task = {
-        id, url, filename: 'pending...', loaded: 0, total: 0,
-        status: 'queued', startTime: Date.now(), isResumable: false,
-        useCredentials: false, threads: [], speed: 0, prevLoaded: 0, remainingTime: -1
+        id, url, filename: 'pending...', loaded: 0, total: 0, status: 'queued', startTime: Date.now(), isResumable: false, useCredentials: false, threads: [], speed: 0, prevLoaded: 0, remainingTime: -1
     };
     tasks.set(id, task);
-    saveState(true);
-    broadcast();
-    processQueue();
+    saveState(true); broadcast(); processQueue();
 }
 
 async function startDownload(task) {
     if (!db) await initDB();
     task.status = 'running';
-    saveState(true);
-    broadcast();
+    saveState(true); broadcast();
 
     const masterController = new AbortController();
     activeControllers.set(task.id, masterController);
 
     try {
-        let response = await fetch(task.url, {
-            method: 'GET',
-            headers: {'Range': 'bytes=0-0'},
-            signal: masterController.signal
-        });
+        let response = await fetch(task.url, { method: 'GET', headers: {'Range': 'bytes=0-0'}, signal: masterController.signal });
         if (response.status === 401 || response.status === 403) {
-            response = await fetch(task.url, {
-                method: 'GET',
-                headers: {'Range': 'bytes=0-0'},
-                signal: masterController.signal,
-                credentials: 'include'
-            });
+            response = await fetch(task.url, { method: 'GET', headers: {'Range': 'bytes=0-0'}, signal: masterController.signal, credentials: 'include' });
             if (response.ok || response.status === 206) task.useCredentials = true;
             else throw new Error(`Access Denied (HTTP ${response.status})`);
         } else if (!response.ok && response.status !== 206) {
@@ -371,13 +309,8 @@ async function startDownload(task) {
 
         const disposition = response.headers.get('content-disposition');
         let filename = task.finalUrl.split('/').pop().split('?')[0];
-        if (disposition && disposition.includes('filename=')) {
-            filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
-        }
-        try {
-            filename = decodeURIComponent(filename);
-        } catch (e) {
-        }
+        if (disposition && disposition.includes('filename=')) filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+        try { filename = decodeURIComponent(filename); } catch (e) {}
         task.filename = filename || `file-${task.id}.bin`;
 
         if (task.threads.length === 0) {
@@ -387,6 +320,9 @@ async function startDownload(task) {
                 else if (task.total > 50 * 1024 * 1024) optimalThreads = 6;
                 else if (task.total > 10 * 1024 * 1024) optimalThreads = 4;
             }
+
+            if (optimalThreads > appSettings.maxThreads) optimalThreads = appSettings.maxThreads;
+
             const partSize = Math.floor(task.total / optimalThreads);
             for (let i = 0; i < optimalThreads; i++) {
                 const start = i * partSize;
@@ -396,93 +332,71 @@ async function startDownload(task) {
             }
         }
 
-        saveState(true);
-        broadcast();
-
+        saveState(true); broadcast();
         const promises = task.threads.filter(t => !t.complete).map(t => downloadThread(task, t, masterController.signal));
         await Promise.all(promises);
         if (task.status === 'running') triggerAssembly(task);
 
     } catch (e) {
-        if (e.name !== 'AbortError') {
+        // FIX 2: Amankan Error Handler
+        const isAbort = e.name === 'AbortError';
+        if (!isAbort) {
             console.error(`[BG] Error Task ${task.id}:`, e);
             task.status = 'error';
-            saveState(true);
         }
+
         activeControllers.delete(task.id);
+
+        // Amankan UI & Badge terlebih dahulu
+        saveState(true);
         broadcast();
         processQueue();
+
+        // Munculkan notifikasi di akhir
+        if (!isAbort) {
+            notifyUser('Download Failed', task.filename);
+        }
     }
 }
 
 async function downloadThread(task, threadInfo, signal) {
     const downloadUrl = task.finalUrl || task.url;
     let offset = threadInfo.current;
-    if (!task.isResumable && offset > 0) {
-        offset = 0;
-        if (task.threads.length === 1) task.loaded = 0;
-    }
-
+    if (!task.isResumable && offset > 0) { offset = 0; if (task.threads.length === 1) task.loaded = 0; }
     const headers = {};
     if (task.isResumable || task.total > 0) {
         const endRange = (threadInfo.end > 0 && threadInfo.end >= offset) ? threadInfo.end : '';
         headers['Range'] = `bytes=${offset}-${endRange}`;
     }
-
     const options = {headers, signal};
     if (task.useCredentials) options.credentials = 'include';
 
     try {
         const resp = await fetch(downloadUrl, options);
         if (!resp.ok && resp.status !== 206 && resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
-
         const reader = resp.body.getReader();
-        let chunksArray = [];
-        let bytesInBuffer = 0;
-        let lastBroadcastThread = Date.now();
-        let streamPos = offset;
+        let chunksArray = []; let bytesInBuffer = 0; let lastBroadcastThread = Date.now(); let streamPos = offset;
 
         while (true) {
             const {done, value} = await reader.read();
             if (done || signal.aborted) break;
-
             const len = value.length;
-            threadInfo.current += len;
-            task.loaded += len;
-            chunksArray.push(value);
-            bytesInBuffer += len;
-
-            if (Date.now() - lastBroadcastThread > 500) {
-                broadcast();
-                lastBroadcastThread = Date.now();
-            }
-
+            threadInfo.current += len; task.loaded += len;
+            chunksArray.push(value); bytesInBuffer += len;
+            if (Date.now() - lastBroadcastThread > 500) { broadcast(); lastBroadcastThread = Date.now(); }
             if (bytesInBuffer >= CHUNK_SIZE) {
                 await flushBufferToDB(task.id, chunksArray, bytesInBuffer, streamPos);
-                streamPos += bytesInBuffer;
-                chunksArray = [];
-                bytesInBuffer = 0;
-                throttledSave();
+                streamPos += bytesInBuffer; chunksArray = []; bytesInBuffer = 0; throttledSave();
             }
         }
-
         if (bytesInBuffer > 0) await flushBufferToDB(task.id, chunksArray, bytesInBuffer, streamPos);
-        if (!signal.aborted) {
-            threadInfo.complete = true;
-            saveState(false);
-        }
-    } catch (e) {
-        throw e;
-    }
+        if (!signal.aborted) { threadInfo.complete = true; saveState(false); }
+    } catch (e) { throw e; }
 }
 
 async function flushBufferToDB(taskId, chunksArray, totalSize, offsetKey) {
-    const combined = new Uint8Array(totalSize);
-    let pos = 0;
-    for (let val of chunksArray) {
-        combined.set(val, pos);
-        pos += val.length;
-    }
+    const combined = new Uint8Array(totalSize); let pos = 0;
+    for (let val of chunksArray) { combined.set(val, pos); pos += val.length; }
     await saveChunk(taskId, offsetKey, combined.buffer);
 }
 
@@ -490,8 +404,7 @@ function saveChunk(taskId, offset, data) {
     return new Promise((resolve, reject) => {
         const tx = db.transaction(['chunks'], 'readwrite');
         tx.objectStore('chunks').put({taskId, offset, data});
-        tx.oncomplete = resolve;
-        tx.onerror = (e) => reject(e);
+        tx.oncomplete = resolve; tx.onerror = (e) => reject(e);
     });
 }
 
@@ -502,32 +415,19 @@ function cleanupDB(taskId) {
     const range = IDBKeyRange.bound([taskId, 0], [taskId, Infinity]);
     store.openCursor(range).onsuccess = (e) => {
         const cursor = e.target.result;
-        if (cursor) {
-            cursor.delete();
-            cursor.continue();
-        }
+        if (cursor) { cursor.delete(); cursor.continue(); }
     };
 }
 
 function cancelTask(id) {
-    if (activeControllers.has(id)) {
-        activeControllers.get(id).abort();
-        activeControllers.delete(id);
-    }
-    if (tasks.has(id)) {
-        tasks.delete(id);
-        cleanupDB(id);
-        saveState(true);
-        broadcast();
-        processQueue();
-    }
+    if (activeControllers.has(id)) { activeControllers.get(id).abort(); activeControllers.delete(id); }
+    if (tasks.has(id)) { tasks.delete(id); cleanupDB(id); saveState(true); broadcast(); processQueue(); }
 }
 
 function broadcast() {
     const list = Array.from(tasks.values());
-    updateBadge();
-    chrome.runtime.sendMessage({action: "update_list", tasks: list}).catch(() => {
-    });
+    updateBadge(); // Menghapus/update badge berdasarkan jumlah task
+    chrome.runtime.sendMessage({action: "update_list", tasks: list}).catch(() => {});
 }
 
 async function triggerAssembly(task) {
@@ -536,11 +436,7 @@ async function triggerAssembly(task) {
     broadcast();
     try {
         if (!(await chrome.offscreen.hasDocument())) {
-            await chrome.offscreen.createDocument({
-                url: 'offscreen.html',
-                reasons: ['BLOBS'],
-                justification: 'Assembly huge file'
-            });
+            await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Assembly huge file' });
         }
         chrome.runtime.sendMessage({action: 'assemble_file', taskId: task.id, filename: task.filename});
     } catch (e) {
@@ -548,25 +444,38 @@ async function triggerAssembly(task) {
         saveState(true);
         broadcast();
         processQueue();
+        notifyUser('Assembly Failed', task.filename);
     }
 }
 
+// FIX 3: Amankan laporan perakitan agar badge dihapus SEBELUM hal lain terjadi
 function handleAssemblyReport(msg) {
     const task = tasks.get(msg.taskId);
     if (!task) return;
+
     if (msg.success && msg.blobUrl) {
         chrome.downloads.download({url: msg.blobUrl, filename: task.filename, saveAs: false}, (id) => {
             task.status = chrome.runtime.lastError ? 'error' : 'completed';
-            if (!chrome.runtime.lastError) cleanupDB(msg.taskId);
+
+            // Amankan UI & Badge TERLEBIH DAHULU (Penting!)
             saveState(true);
             broadcast();
             processQueue();
+
+            // Lakukan pembersihan dan notifikasi di akhir
+            if (!chrome.runtime.lastError) {
+                cleanupDB(msg.taskId);
+                notifyUser('Download Complete', task.filename);
+            } else {
+                notifyUser('Save Failed', task.filename);
+            }
         });
     } else {
         task.status = 'error';
         saveState(true);
         broadcast();
         processQueue();
+        notifyUser('Assembly Failed', task.filename);
     }
 }
 

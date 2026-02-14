@@ -1,5 +1,5 @@
 // popup.js - UI Logic for CZDM
-// VERSION: Final Complete (On-Demand + Batch Queue System)
+// VERSION: Theme Switcher & Setting Configurator
 
 document.addEventListener('contextmenu', (event) => {
     if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
@@ -10,10 +10,18 @@ document.addEventListener('contextmenu', (event) => {
 let selectedIds = new Set();
 let currentTasks = [];
 let grabberLinks = [];
-
-// Variabel untuk Sistem Antrean (Queue) Pengecekan Ukuran
 let checkQueue = [];
 let isCheckingQueue = false;
+
+const DEFAULT_SETTINGS = {
+    theme: 'auto',
+    autoOverride: true,
+    maxConcurrent: 3,
+    maxThreads: 8,
+    interceptExts: 'zip, rar, 7z, iso, exe, msi, apk, mp4, mkv, avi, mp3, pdf, dmg, pkg',
+    minSizeMB: 5,
+    notifications: true
+};
 
 // --- DOM ELEMENTS ---
 const listContainer = document.getElementById('listContainer');
@@ -28,6 +36,15 @@ const toolDelete = document.getElementById('toolDelete');
 const toolSelectAll = document.getElementById('toolSelectAll');
 const toolClear = document.getElementById('toolClear');
 
+// Settings Elements
+const sTheme = document.getElementById('sTheme');
+const sAutoOverride = document.getElementById('sAutoOverride');
+const sInterceptExts = document.getElementById('sInterceptExts');
+const sMinSize = document.getElementById('sMinSize');
+const sMaxConcurrent = document.getElementById('sMaxConcurrent');
+const sMaxThreads = document.getElementById('sMaxThreads');
+const sNotifications = document.getElementById('sNotifications');
+
 // Modal Elements
 const addModal = document.getElementById('addModal');
 const newUrlInput = document.getElementById('newUrlInput');
@@ -36,7 +53,6 @@ const urlDetails = document.getElementById('urlDetails');
 const addConfirm = document.getElementById('addConfirm');
 const addCancel = document.getElementById('addCancel');
 
-// Confirm Modal Elements
 const confirmModal = document.getElementById('confirmModal');
 const modalTitle = document.getElementById('modalTitle');
 const modalText = document.getElementById('modalText');
@@ -56,10 +72,12 @@ const appVersion = document.getElementById('appVersion');
 const appDesc = document.getElementById('appDesc');
 
 let addUrlTimeout = null;
+let settingsSaveTimeout = null;
 
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
     loadManifestInfo();
+    loadSettings();
     requestUpdate(true);
     setInterval(() => requestUpdate(false), 1000);
 
@@ -74,7 +92,73 @@ function loadManifestInfo() {
         const manifest = chrome.runtime.getManifest();
         if (appVersion) appVersion.innerText = `v${manifest.version}`;
         if (appDesc) appDesc.innerText = manifest.description;
-    } catch (e) { console.error(e); }
+    } catch (e) {}
+}
+
+// --- SETTINGS LOGIC & THEME CHANGER ---
+
+function applyTheme(themeValue) {
+    if (themeValue === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    } else if (themeValue === 'light') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+        }
+    }
+}
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (sTheme.value === 'auto') {
+        applyTheme('auto');
+    }
+});
+
+function loadSettings() {
+    chrome.storage.local.get('settings', (res) => {
+        const s = Object.assign({}, DEFAULT_SETTINGS, res.settings || {});
+        sTheme.value = s.theme;
+        sAutoOverride.checked = s.autoOverride;
+        sInterceptExts.value = s.interceptExts;
+        sMinSize.value = s.minSizeMB;
+        sMaxConcurrent.value = s.maxConcurrent;
+        sMaxThreads.value = s.maxThreads;
+        sNotifications.checked = s.notifications;
+
+        applyTheme(s.theme);
+    });
+}
+
+function saveSettings() {
+    const newSettings = {
+        theme: sTheme.value,
+        autoOverride: sAutoOverride.checked,
+        interceptExts: sInterceptExts.value,
+        minSizeMB: parseInt(sMinSize.value) || 5,
+        maxConcurrent: parseInt(sMaxConcurrent.value) || 3,
+        maxThreads: parseInt(sMaxThreads.value) || 8,
+        notifications: sNotifications.checked
+    };
+
+    applyTheme(newSettings.theme);
+    chrome.storage.local.set({ settings: newSettings }, () => {
+        showToast('Settings Saved!');
+    });
+}
+
+// Auto-save listeners
+[sTheme, sAutoOverride, sMinSize, sMaxConcurrent, sMaxThreads, sNotifications].forEach(el => {
+    if(el) el.addEventListener('change', saveSettings);
+});
+
+if (sInterceptExts) {
+    sInterceptExts.addEventListener('input', () => {
+        clearTimeout(settingsSaveTimeout);
+        settingsSaveTimeout = setTimeout(saveSettings, 1000);
+    });
 }
 
 // Tab Navigation
@@ -170,7 +254,6 @@ function renderList(tasks) {
     }
 
     if (listContainer.querySelector('.empty-state')) listContainer.innerHTML = '';
-
     const taskIds = new Set(tasks.map(t => t.id));
 
     Array.from(listContainer.children).forEach(row => {
@@ -284,7 +367,6 @@ function renderList(tasks) {
     });
 }
 
-// --- DASHBOARD TOOLBAR LOGIC ---
 function updateToolbarState() {
     const count = selectedIds.size;
     if (count === 0) {
@@ -308,8 +390,6 @@ function updateToolbarState() {
     toolPause.disabled = !canPause;
     toolSelectAll.querySelector('span').innerText = (currentTasks.length > 0 && count === currentTasks.length) ? "Deselect" : "Select All";
 }
-
-// --- ACTIONS & CONFIRMATIONS ---
 
 toolSelectAll.onclick = () => {
     if (selectedIds.size === currentTasks.length && currentTasks.length > 0) {
@@ -374,8 +454,7 @@ function triggerUrlCheck(url) {
 }
 addConfirm.onclick = () => { if (newUrlInput.value) { chrome.runtime.sendMessage({ action: "add_task", url: newUrlInput.value }); addModal.classList.remove('active'); showToast('Added to queue'); } };
 
-// --- GRABBER LOGIC (ON-DEMAND + QUEUE BATCHING) ---
-
+// --- GRABBER LOGIC ---
 function updateGrabberToolbarState() {
     const rows = Array.from(grabList.querySelectorAll('.grab-row'));
     if (rows.length === 0) {
@@ -387,32 +466,24 @@ function updateGrabberToolbarState() {
     grabSelectAllBtn.querySelector('span').innerText = allSelected ? "Deselect" : "Select All";
 }
 
-// 1. Fungsi untuk Memasukkan Permintaan ke Antrean
 function queueCheckItemSize(item, row) {
     if (item.cachedSize !== undefined || item.isChecking) return;
-
     item.isChecking = true;
     const sizeEl = row.querySelector('.grab-size-info');
-    // FIX: Gunakan textContent, BUKAN innerText
     if (sizeEl) sizeEl.textContent = 'Wait...';
-
     checkQueue.push({ item, row });
     processCheckQueue();
 }
 
-// 2. Mesin Pemroses Antrean
 function processCheckQueue() {
     if (isCheckingQueue || checkQueue.length === 0) return;
     isCheckingQueue = true;
-
     const batch = checkQueue.splice(0, 5);
 
     const promises = batch.map(({ item, row }) => {
         return new Promise(resolve => {
             const sizeEl = row.querySelector('.grab-size-info');
-            // FIX: Gunakan textContent
             if (sizeEl) sizeEl.textContent = 'Checking...';
-
             chrome.runtime.sendMessage({ action: 'check_url', url: item.url }, (res) => {
                 if (res && res.success) {
                     item.cachedSize = res.size;
@@ -433,7 +504,6 @@ function processCheckQueue() {
 }
 
 grabList.addEventListener('click', (e) => {
-    // --- FITUR BARU: Tangkap klik pada tombol copy ---
     const copyBtn = e.target.closest('.copy-url-btn');
     if (copyBtn) {
         const row = copyBtn.closest('.grab-row');
@@ -441,18 +511,16 @@ grabList.addEventListener('click', (e) => {
             navigator.clipboard.writeText(row.dataset.url);
             showToast('URL copied!');
         }
-        return; // Hentikan di sini agar baris tidak ikut terpilih
+        return;
     }
 
     const row = e.target.closest('.grab-row');
     if (!row) return;
-
     const url = row.dataset.url;
     const item = grabberLinks.find(i => i.url === url);
 
     if (e.target.closest('.col-chk')) {
         row.classList.toggle('selected');
-
         if (!row.classList.contains('selected')) {
             checkQueue = checkQueue.filter(q => {
                 if (q.row === row) {
@@ -466,25 +534,18 @@ grabList.addEventListener('click', (e) => {
         } else {
             if (item) queueCheckItemSize(item, row);
         }
-
     } else {
-        // A. Hapus warna dengan cepat
         const currentlySelected = grabList.querySelectorAll('.grab-row.selected');
         currentlySelected.forEach(r => r.classList.remove('selected'));
-
-        // B. Batalkan SEMUA antrean tanpa membebani Layout Browser
         checkQueue.forEach(q => {
             q.item.isChecking = false;
             const sizeEl = q.row.querySelector('.grab-size-info');
             if (sizeEl && sizeEl.textContent === 'Wait...') sizeEl.textContent = '-';
         });
         checkQueue = [];
-
-        // C. Aktifkan
         row.classList.add('selected');
         if (item) queueCheckItemSize(item, row);
     }
-
     updateGrabberToolbarState();
 });
 
@@ -503,7 +564,6 @@ function renderGrab(items) {
         const row = document.createElement('div');
         row.className = 'grab-row';
         row.dataset.url = i.url;
-
         row.style.userSelect = 'none';
         row.style.cursor = 'pointer';
 
@@ -524,9 +584,7 @@ function renderGrab(items) {
            <div class="row-details">
                 <div class="file-name-row">
                     <div class="file-name">${filename}</div>
-                    <button class="copy-url-btn" title="Copy URL">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    </button>
+                    <button class="copy-url-btn" title="Copy URL"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
                 </div>
                 <div class="grab-meta-row">
                     <span class="grab-size-info">${displaySize}</span>
@@ -539,19 +597,12 @@ function renderGrab(items) {
     updateGrabberToolbarState();
 }
 
-scanBtn.onclick = performScan;
-rescanBtn.onclick = performScan;
-
 function applyCurrentFilter() {
     const val = filterInput.value.toLowerCase();
-
-    // Jika kotak filter kosong, tampilkan semua
     if (!val) {
         renderGrab(grabberLinks);
         return;
     }
-
-    // Jika ada teks, saring array grabberLinks
     const filtered = grabberLinks.filter(i =>
         (i.url.split('/').pop() || '').toLowerCase().includes(val) ||
         i.url.toLowerCase().includes(val)
@@ -559,8 +610,9 @@ function applyCurrentFilter() {
     renderGrab(filtered);
 }
 
-// Event listener filter sekarang memanggil fungsi terpusat
 filterInput.addEventListener('input', applyCurrentFilter);
+scanBtn.onclick = performScan;
+rescanBtn.onclick = performScan;
 
 grabSelectAllBtn.onclick = () => {
     const rows = grabList.querySelectorAll('.grab-row');
@@ -568,25 +620,20 @@ grabSelectAllBtn.onclick = () => {
 
     if (currentlyAllSelected) {
         rows.forEach(r => r.classList.remove('selected'));
-
         checkQueue.forEach(({ item, row }) => {
             item.isChecking = false;
             const sizeEl = row.querySelector('.grab-size-info');
-            if (sizeEl) sizeEl.innerText = '-';
+            if (sizeEl) sizeEl.textContent = '-';
         });
-
         checkQueue = [];
-
     } else {
         rows.forEach(r => {
             r.classList.add('selected');
-            // Masukkan ke antrean dengan tertib
             const url = r.dataset.url;
             const item = grabberLinks.find(i => i.url === url);
             if (item) queueCheckItemSize(item, r);
         });
     }
-
     updateGrabberToolbarState();
 };
 
@@ -616,7 +663,6 @@ async function performScan() {
                 cachedSize: undefined,
                 isChecking: false
             }));
-
             applyCurrentFilter();
         }
     });
@@ -636,11 +682,9 @@ function showToast(msg) {
 
 function showConfirm(title, text, btnText, cb) {
     if (!confirmModal) return;
-
     modalTitle.innerText = title;
     modalText.innerText = text;
     modalOk.innerText = btnText;
-
     modalOk.classList.add('confirm');
     confirmModal.classList.add('active');
 

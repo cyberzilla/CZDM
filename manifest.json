@@ -11,7 +11,8 @@
     "scripting",
     "activeTab",
     "contextMenus",
-    "clipboardRead"
+    "clipboardRead",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>"
