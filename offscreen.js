@@ -1,14 +1,16 @@
 const DB_NAME = 'CZDM_DB';
 const DB_VERSION = 1;
 let db = null;
-
 const crcTable = new Uint32Array(256);
-for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) {
-        c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+
+function initCRC32Table() {
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let j = 0; j < 8; j++) {
+            c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+        }
+        crcTable[i] = c;
     }
-    crcTable[i] = c;
 }
 
 function calculateCRC32Chunk(buffer, previousCrc32 = 0) {
@@ -31,12 +33,6 @@ function initDB() {
     });
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === 'assemble_file') {
-        processAssembly(msg.taskId, msg.filename);
-    }
-});
-
 async function processAssembly(taskId, filename) {
     if (!db) await initDB();
     try {
@@ -52,7 +48,7 @@ async function processAssembly(taskId, filename) {
             request.onerror = (e) => reject(e.target.error);
         });
 
-        if (keys.length === 0) throw new Error("Chunks empty");
+        if (keys.length === 0) throw new Error("Storage empty");
 
         let currentCrc32 = 0;
 
@@ -73,7 +69,6 @@ async function processAssembly(taskId, filename) {
 
         const file = await fileHandle.getFile();
         const url = URL.createObjectURL(file);
-
         const finalCrc32Hex = currentCrc32.toString(16).padStart(8, '0').toUpperCase();
 
         chrome.runtime.sendMessage({
@@ -84,13 +79,40 @@ async function processAssembly(taskId, filename) {
             crc32: finalCrc32Hex
         });
 
-        setTimeout(async () => {
-            URL.revokeObjectURL(url);
-            await opfsRoot.removeEntry(`czdm_${taskId}.bin`).catch(() => {
-            });
-        }, 60000);
-
     } catch (err) {
         chrome.runtime.sendMessage({action: 'assembly_report', taskId, success: false, error: err.message});
     }
 }
+
+async function cleanupOPFSFile(taskId) {
+    try {
+        const opfsRoot = await navigator.storage.getDirectory();
+        await opfsRoot.removeEntry(`czdm_${taskId}.bin`);
+    } catch (e) {}
+}
+
+async function cleanupOrphanedOPFS(activeIds) {
+    try {
+        const opfsRoot = await navigator.storage.getDirectory();
+        for await (const [name, handle] of opfsRoot.entries()) {
+            if (name.startsWith('czdm_') && name.endsWith('.bin')) {
+                const taskId = name.replace('czdm_', '').replace('.bin', '');
+                if (!activeIds.includes(taskId)) {
+                    await opfsRoot.removeEntry(name);
+                }
+            }
+        }
+    } catch (e) {}
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === 'assemble_file') {
+        processAssembly(msg.taskId, msg.filename);
+    } else if (msg.action === 'cleanup_opfs') {
+        cleanupOPFSFile(msg.taskId);
+    } else if (msg.action === 'cleanup_orphaned_opfs') {
+        cleanupOrphanedOPFS(msg.activeIds || []);
+    }
+});
+
+initCRC32Table();
