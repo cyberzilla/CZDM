@@ -180,12 +180,6 @@ main {
     transform: translateY(1px);
 }
 
-.tool-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-    filter: grayscale(100%);
-}
-
 .tool-btn.primary {
     color: var(--primary);
 }
@@ -202,6 +196,15 @@ main {
 .tool-btn.danger:hover:not(:disabled) {
     background: rgba(239, 68, 68, 0.1);
     border-color: #fecaca;
+}
+
+.tool-btn:disabled,
+.tool-btn.primary:disabled,
+.tool-btn.danger:disabled {
+    opacity: 0.4;
+    cursor: default;
+    color: var(--text);
+    filter: grayscale(100%);
 }
 
 .v-divider {
