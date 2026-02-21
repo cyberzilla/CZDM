@@ -477,7 +477,10 @@ async function downloadThread(task, threadInfo, signal) {
 
     if (!task.isResumable && offset > 0) {
         offset = 0;
+        threadInfo.current = 0; 
         if (task.threads.length === 1) task.loaded = 0;
+        
+        await cleanupDB(task.id); 
     }
 
     const headers = {};
@@ -488,13 +491,25 @@ async function downloadThread(task, threadInfo, signal) {
     const options = {headers, signal};
     if (task.useCredentials) options.credentials = 'include';
 
+    let bytesInBuffer = 0;
+
     try {
         const resp = await fetch(downloadUrl, options);
         if (!resp.ok && resp.status !== 206 && resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
 
+        if (offset > 0 && resp.status === 200) {
+            if (task.threads.length > 1) {
+                throw new Error("Server tidak lagi mendukung multi-threading/resume. Silakan unduh ulang.");
+            }
+            task.loaded -= threadInfo.current;
+            offset = 0;
+            threadInfo.current = 0;
+            
+            await cleanupDB(task.id);
+        }
+
         const reader = resp.body.getReader();
         let chunksArray = [];
-        let bytesInBuffer = 0;
         let lastBroadcastThread = Date.now();
         let streamPos = offset;
 
@@ -521,13 +536,21 @@ async function downloadThread(task, threadInfo, signal) {
             }
         }
 
-        if (bytesInBuffer > 0) await flushBufferToDB(task.id, chunksArray, bytesInBuffer, streamPos);
+        if (bytesInBuffer > 0) {
+            await flushBufferToDB(task.id, chunksArray, bytesInBuffer, streamPos);
+            bytesInBuffer = 0;
+        }
 
         if (!signal.aborted) {
             threadInfo.complete = true;
             saveState(false);
         }
     } catch (e) {
+        if (bytesInBuffer > 0) {
+            threadInfo.current -= bytesInBuffer;
+            task.loaded -= bytesInBuffer;
+            bytesInBuffer = 0;
+        }
         throw e;
     }
 }
@@ -552,17 +575,19 @@ function saveChunk(taskId, offset, data) {
 }
 
 function cleanupDB(taskId) {
-    if (!db) return;
-    const tx = db.transaction(['chunks'], 'readwrite');
-    const store = tx.objectStore('chunks');
-    const range = IDBKeyRange.bound([taskId, 0], [taskId, Infinity]);
-    store.openCursor(range).onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (cursor) {
-            cursor.delete();
-            cursor.continue();
+    return new Promise((resolve, reject) => {
+        if (!db) return resolve();
+        try {
+            const tx = db.transaction(['chunks'], 'readwrite');
+            const store = tx.objectStore('chunks');
+            const range = IDBKeyRange.bound([taskId, 0], [taskId, Infinity]);
+            const request = store.delete(range);
+            request.onsuccess = resolve;
+            request.onerror = (e) => reject(e);
+        } catch (e) {
+            resolve();
         }
-    };
+    });
 }
 
 function cancelTask(id) {
