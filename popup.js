@@ -12,7 +12,9 @@ const DEFAULT_SETTINGS = {
     maxThreads: 8,
     interceptExts: 'zip, rar, 7z, iso, exe, msi, apk, mp4, mkv, avi, mp3, pdf, dmg, pkg',
     minSizeMB: 5,
-    notifications: true
+    notifications: true,
+    showPrompt: false,
+    showPageNotification: false
 };
 
 const listContainer = document.getElementById('listContainer');
@@ -36,6 +38,8 @@ const sMinSize = document.getElementById('sMinSize');
 const sMaxConcurrent = document.getElementById('sMaxConcurrent');
 const sMaxThreads = document.getElementById('sMaxThreads');
 const sNotifications = document.getElementById('sNotifications');
+const sShowPrompt = document.getElementById('sShowPrompt');
+const sShowNotification = document.getElementById('sShowNotification');
 
 const addModal = document.getElementById('addModal');
 const newUrlInput = document.getElementById('newUrlInput');
@@ -169,6 +173,8 @@ function loadSettings() {
         sMaxConcurrent.value = s.maxConcurrent;
         sMaxThreads.value = s.maxThreads;
         sNotifications.checked = s.notifications;
+        sShowPrompt.checked = s.showPrompt;
+        sShowNotification.checked = s.showPageNotification;
         applyTheme(s.theme);
     });
 }
@@ -182,13 +188,15 @@ function saveSettings() {
         minSizeMB: parseInt(sMinSize.value) || 5,
         maxConcurrent: parseInt(sMaxConcurrent.value) || 3,
         maxThreads: parseInt(sMaxThreads.value) || 8,
-        notifications: sNotifications.checked
+        notifications: sNotifications.checked,
+        showPrompt: sShowPrompt.checked,
+        showPageNotification: sShowNotification.checked
     };
     applyTheme(newSettings.theme);
     chrome.storage.local.set({ settings: newSettings }, () => showToast('Settings Saved'));
 }
 
-[sTheme, sDownloadLocation, sAutoOverride, sMinSize, sMaxConcurrent, sMaxThreads, sNotifications].forEach(el => {
+[sTheme, sDownloadLocation, sAutoOverride, sMinSize, sMaxConcurrent, sMaxThreads, sNotifications, sShowPrompt, sShowNotification].forEach(el => {
     if(el) el.addEventListener('change', saveSettings);
 });
 

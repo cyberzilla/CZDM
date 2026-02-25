@@ -17,7 +17,9 @@ let appSettings = {
     interceptExts: 'zip, rar, 7z, iso, exe, msi, apk, mp4, mkv, avi, mp3, pdf, dmg, pkg',
     minSizeMB: 5,
     notifications: true,
-    downloadLocation: 'default'
+    downloadLocation: 'default',
+    showPrompt: false,
+    showPageNotification: false
 };
 
 function initDB() {
@@ -213,7 +215,25 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
     if (interceptExts.includes(fileExt) || downloadItem.fileSize > (appSettings.minSizeMB * 1024 * 1024)) {
         chrome.downloads.cancel(downloadItem.id, () => {
             chrome.downloads.erase({id: downloadItem.id});
-            queueDownload(downloadItem.url);
+
+            if (appSettings.showPrompt) {
+                chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                    if (tabs && tabs.length > 0 && tabs[0].id) {
+                        chrome.tabs.sendMessage(tabs[0].id, {
+                            action: "show_page_prompt",
+                            url: downloadItem.url
+                        }, (response) => {
+                            if (chrome.runtime.lastError) {
+                                queueDownload(downloadItem.url);
+                            }
+                        });
+                    } else {
+                        queueDownload(downloadItem.url);
+                    }
+                });
+            } else {
+                queueDownload(downloadItem.url);
+            }
         });
     }
 });
@@ -379,6 +399,17 @@ async function queueDownload(rawUrl) {
     saveState(true);
     broadcast();
     processQueue();
+
+    if (appSettings.showPageNotification) {
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            if (tabs && tabs[0] && tabs[0].id) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    action: "show_page_notification",
+                    url: url
+                }).catch(() => {});
+            }
+        });
+    }
 }
 
 async function startDownload(task) {
@@ -477,10 +508,10 @@ async function downloadThread(task, threadInfo, signal) {
 
     if (!task.isResumable && offset > 0) {
         offset = 0;
-        threadInfo.current = 0; 
+        threadInfo.current = 0;
         if (task.threads.length === 1) task.loaded = 0;
-        
-        await cleanupDB(task.id); 
+
+        await cleanupDB(task.id);
     }
 
     const headers = {};
@@ -504,7 +535,7 @@ async function downloadThread(task, threadInfo, signal) {
             task.loaded -= threadInfo.current;
             offset = 0;
             threadInfo.current = 0;
-            
+
             await cleanupDB(task.id);
         }
 
