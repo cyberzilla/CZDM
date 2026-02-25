@@ -1,4 +1,4 @@
-// File: page_injector.js
+// File: injector.js
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "show_page_prompt") {
@@ -12,7 +12,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 function injectPrompt(url) {
-    // Hindari duplikasi prompt
     if (document.getElementById('czdm-prompt-overlay')) return;
 
     const overlay = document.createElement('div');
@@ -47,7 +46,6 @@ function injectPrompt(url) {
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
-    // Animasi masuk
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
         box.style.transform = 'translateY(0)';
@@ -65,7 +63,6 @@ function injectPrompt(url) {
 
     btnCancel.onclick = closePrompt;
 
-    // Cek Header File (memanfaatkan endpoint background Anda yang sudah ada)
     chrome.runtime.sendMessage({ action: 'check_url', url: url }, (res) => {
         if (res && res.success) {
             detailsDiv.innerHTML = `
@@ -73,9 +70,13 @@ function injectPrompt(url) {
                     <span style="color: #64748b; flex-shrink: 0;">File:</span>
                     <span style="font-weight: 600; color: #334155; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${res.filename}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #64748b;">Size:</span>
                     <span style="font-weight: 600; color: #334155;">${formatBytes(res.size)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="color: #64748b;">Type:</span>
+                    <span style="font-weight: 600; color: #334155;">${res.mime || 'Unknown'}</span>
                 </div>
             `;
             btnConfirm.disabled = false;
