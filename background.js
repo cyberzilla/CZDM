@@ -530,7 +530,7 @@ async function downloadThread(task, threadInfo, signal) {
 
         if (offset > 0 && resp.status === 200) {
             if (task.threads.length > 1) {
-                throw new Error("Server tidak lagi mendukung multi-threading/resume. Silakan unduh ulang.");
+                throw new Error("The server no longer supports multi-threading/resume. Please download again.");
             }
             task.loaded -= threadInfo.current;
             offset = 0;
