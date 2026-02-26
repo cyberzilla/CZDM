@@ -3,6 +3,7 @@
 ![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Chromium-orange.svg)
+[![Available on Edge](https://img.shields.io/badge/Available_on-Edge_Store-blue?logo=microsoftedge)](https://microsoftedge.microsoft.com/addons/detail/enjhnhjjehlhoiianknfnjfncalilfag)
 
 **CZDM (Cyberzilla Download Manager)** is a high-performance, open-source browser extension designed to accelerate download speeds using advanced multi-threading technology. It features a robust file assembly engine to prevent corruption, a smart media grabber, and a modern, user-friendly interface.
 
@@ -40,10 +41,14 @@ CZDM_Source/
     └── 128x128.png
 ```
 
-## 🛠️ Installation (Developer Mode)
+## 🛠️ Installation
 
-Since this is an open-source project, you need to load it as an "Unpacked Extension".
+### 📥 Official Extension Store (Recommended)
+You can easily install CZDM directly from the official Microsoft Edge Add-ons store:
+👉 **[Download CZDM from Edge Store](https://microsoftedge.microsoft.com/addons/detail/enjhnhjjehlhoiianknfnjfncalilfag)**
 
+### 🧑‍💻 Developer Mode (Unpacked)
+If you want to view the source code or use it on other Chromium browsers manually:
 1.  **Download** or **Clone** this repository to your local machine.
 2.  Open your browser (Chrome, Edge, or Brave).
 3.  Navigate to the Extensions management page:
