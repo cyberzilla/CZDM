@@ -470,15 +470,17 @@ async function startDownload(task) {
                 if (optimalThreads === 1) end = task.total > 0 ? task.total - 1 : 0;
                 task.threads.push({index: i, start, end, current: start, complete: false});
             }
-        } else if (!task.isResumable) {
-            task.threads = [{
-                index: 0,
-                start: 0,
-                end: task.total > 0 ? task.total - 1 : 0,
-                current: 0,
-                complete: false
-            }];
-        }
+        } else if (!task.isResumable && task.threads.length <= 1) {
+        task.threads = [{
+            index: 0,
+            start: 0,
+            end: task.total > 0 ? task.total - 1 : 0,
+            current: 0,
+            complete: false
+        }];
+    } else if (task.threads.length > 1) {
+        task.isResumable = true;
+    }
 
         saveState(true);
         broadcast();
