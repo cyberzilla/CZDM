@@ -228,24 +228,21 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
                         chrome.tabs.sendMessage(tabs[0].id, {
                             action: "show_page_prompt",
                             url: downloadItem.url,
-                            fileSize: downloadItem.fileSize
+                            fileSize: downloadItem.fileSize,
+                            filename: downloadItem.filename // Kirim nama asli ke UI
                         }, (response) => {
-                            // PERBAIKAN DI SINI: Menangani respon dari prompt
                             if (chrome.runtime.lastError) {
-                                // Jika tidak ada script injector di halaman tsb (halaman sistem chrome/blank)
-                                queueDownload(downloadItem.url);
+                                queueDownload(downloadItem.url, downloadItem.filename);
                             } else if (response && response.download) {
-                                // Jika user mengklik tombol "Download" pada prompt
-                                queueDownload(downloadItem.url);
+                                queueDownload(downloadItem.url, downloadItem.filename);
                             }
-                            // Jika response.download false (user klik Cancel), tidak perlu melakukan apa-apa
                         });
                     } else {
-                        queueDownload(downloadItem.url);
+                        queueDownload(downloadItem.url, downloadItem.filename);
                     }
                 });
             } else {
-                queueDownload(downloadItem.url);
+                queueDownload(downloadItem.url, downloadItem.filename);
             }
         });
     }
@@ -386,13 +383,22 @@ function processQueue() {
     updateBadge();
 }
 
-async function queueDownload(rawUrl) {
+// Menerima parameter nama file yang di-pass dari interceptor
+async function queueDownload(rawUrl, providedFilename = '') {
     const url = parseGoogleDriveLink(rawUrl);
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+
+    let initialName = 'Pending...';
+    if (providedFilename && typeof providedFilename === 'string' && providedFilename.trim() !== '') {
+        initialName = providedFilename.replace(/^.*[\\\/]/, ''); // Ekstrak murni nama jika berupa file path
+    } else if (url.includes('drive.google.com')) {
+        initialName = 'Google Drive File'; // Penamaan estetik jika source tidak punya nama awal
+    }
+
     const task = {
         id,
         url,
-        filename: 'Pending...',
+        filename: initialName,
         loaded: 0,
         total: 0,
         status: 'queued',
@@ -419,7 +425,8 @@ async function queueDownload(rawUrl) {
             if (tabs && tabs[0] && tabs[0].id) {
                 chrome.tabs.sendMessage(tabs[0].id, {
                     action: "show_page_notification",
-                    url: url
+                    url: url,
+                    filename: initialName // Meneruskan ke UI agar langsung tampil
                 }).catch(() => {});
             }
         });
@@ -463,11 +470,22 @@ async function startDownload(task) {
         task.serverHash = (response.headers.get('etag') || '-').replace(/["']/g, '');
         task.mime = response.headers.get('content-type') || 'unknown';
 
+        // Penyesuaian agar tidak menimpa nama yang sudah bagus (yang ditangkap interceptor Chrome)
         const disposition = response.headers.get('content-disposition');
-        let filename = task.finalUrl.split('/').pop().split('?')[0];
-        if (disposition && disposition.includes('filename=')) filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
-        try { filename = decodeURIComponent(filename); } catch (e) {}
-        task.filename = filename || `file-${task.id}.bin`;
+        let fetchedName = task.finalUrl.split('/').pop().split('?')[0];
+
+        if (disposition && disposition.includes('filename=')) {
+            let matchName = disposition.split('filename=')[1].split(';')[0].replace(/["']/g, '').trim();
+            if (matchName) fetchedName = matchName;
+        }
+        try { fetchedName = decodeURIComponent(fetchedName); } catch (e) {}
+
+        // Gunakan nama dari Header Content-Disposition. Jika tidak ada, pakai nama hasil tangkapan.
+        if (disposition && disposition.includes('filename=')) {
+            task.filename = fetchedName;
+        } else if (task.filename === 'Pending...' || task.filename === 'Google Drive File' || !task.filename) {
+            task.filename = fetchedName || `file-${task.id}.bin`;
+        }
 
         if (task.threads.length === 0) {
             let optimalThreads = 1;

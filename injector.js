@@ -2,21 +2,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "show_page_notification") {
         chrome.storage.local.get('settings', (res) => {
             const theme = res.settings?.theme || 'auto';
-            showCzdmNotification(request.url, theme);
+            showCzdmNotification(request.url, request.filename, theme);
         });
         sendResponse({status: "ok"});
     } else if (request.action === "show_page_prompt") {
         chrome.storage.local.get('settings', (res) => {
             const theme = res.settings?.theme || 'auto';
-            showCzdmPrompt(request.url, request.fileSize, theme, sendResponse);
+            showCzdmPrompt(request.url, request.filename, request.fileSize, theme, sendResponse);
         });
-        return true; // Keep message channel open for async response
+        return true;
     }
 });
 
-function extractCzdmFilename(url) {
+// Mengekstrak nama dari Chrome langsung, atau mem-fallback dengan elegan untuk URL G-Drive
+function extractCzdmFilename(url, providedName) {
+    if (providedName && providedName !== 'Pending...' && providedName !== 'Google Drive File') {
+        return providedName.replace(/^.*[\\\/]/, ''); // Menghapus format path 'C:\...' jika ada
+    }
     if (!url) return 'Unknown File';
     try {
+        if (url.includes('drive.google.com')) return 'Google Drive Document';
         let name = url.split('/').pop().split('?')[0];
         name = decodeURIComponent(name);
         return name || 'Unknown File';
@@ -33,7 +38,6 @@ function formatBytes(bytes) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-// Fungsi untuk menentukan warna berdasarkan pengaturan tema pengguna
 function getThemeStyles(themeMode) {
     const isDarkOS = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const isDark = themeMode === 'dark' || (themeMode === 'auto' && isDarkOS) || (themeMode === 'glass' && isDarkOS);
@@ -70,8 +74,8 @@ function getThemeStyles(themeMode) {
     }
 }
 
-function showCzdmNotification(url, themeMode) {
-    const filename = extractCzdmFilename(url);
+function showCzdmNotification(url, providedFilename, themeMode) {
+    const filename = extractCzdmFilename(url, providedFilename);
     const style = getThemeStyles(themeMode);
 
     const container = document.createElement('div');
@@ -167,8 +171,8 @@ function showCzdmNotification(url, themeMode) {
     }, 3500);
 }
 
-function showCzdmPrompt(url, fileSize, themeMode, sendResponse) {
-    const filename = extractCzdmFilename(url);
+function showCzdmPrompt(url, providedFilename, fileSize, themeMode, sendResponse) {
+    const filename = extractCzdmFilename(url, providedFilename);
     const displaySize = formatBytes(fileSize);
     const style = getThemeStyles(themeMode);
 
