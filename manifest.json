@@ -3,7 +3,7 @@
   "name": "CzDM - Cyberzilla Download Manager",
   "short_name": "CzDM",
   "full_name": "Cyberzilla Download Manager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Simple Download Manager with multi-thread acceleration, Smart Media Grabber, Resume capability, and anti-corruption technology.",
   "author": "Cyberzilla",
   "permissions": [
