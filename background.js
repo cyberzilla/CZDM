@@ -84,6 +84,11 @@ function startBroadcastLoop() {
     broadcastInterval = setInterval(() => {
         let needsBroadcast = false;
         tasks.forEach(task => {
+            if (task.status === 'running' || task.status === 'assembling') {
+                if (typeof task.downloadDuration !== 'number') task.downloadDuration = 0;
+                task.downloadDuration += 1000;
+            }
+
             if (task.status === 'running') {
                 const currentLoaded = task.loaded;
                 const prevLoaded = task.prevLoaded || 0;
@@ -95,6 +100,7 @@ function startBroadcastLoop() {
                 needsBroadcast = true;
             } else {
                 task.speed = 0;
+                if (task.status === 'assembling') needsBroadcast = true;
             }
         });
         if (needsBroadcast) broadcast();
@@ -221,11 +227,18 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
                     if (tabs && tabs.length > 0 && tabs[0].id) {
                         chrome.tabs.sendMessage(tabs[0].id, {
                             action: "show_page_prompt",
-                            url: downloadItem.url
+                            url: downloadItem.url,
+                            fileSize: downloadItem.fileSize
                         }, (response) => {
+                            // PERBAIKAN DI SINI: Menangani respon dari prompt
                             if (chrome.runtime.lastError) {
+                                // Jika tidak ada script injector di halaman tsb (halaman sistem chrome/blank)
+                                queueDownload(downloadItem.url);
+                            } else if (response && response.download) {
+                                // Jika user mengklik tombol "Download" pada prompt
                                 queueDownload(downloadItem.url);
                             }
+                            // Jika response.download false (user klik Cancel), tidak perlu melakukan apa-apa
                         });
                     } else {
                         queueDownload(downloadItem.url);
@@ -390,6 +403,7 @@ async function queueDownload(rawUrl) {
         speed: 0,
         prevLoaded: 0,
         remainingTime: -1,
+        downloadDuration: 0,
         serverHash: '-',
         localCrc32: '-',
         mime: '-',
@@ -471,22 +485,46 @@ async function startDownload(task) {
                 task.threads.push({index: i, start, end, current: start, complete: false});
             }
         } else if (!task.isResumable && task.threads.length <= 1) {
-        task.threads = [{
-            index: 0,
-            start: 0,
-            end: task.total > 0 ? task.total - 1 : 0,
-            current: 0,
-            complete: false
-        }];
-    } else if (task.threads.length > 1) {
-        task.isResumable = true;
-    }
+            task.threads = [{
+                index: 0,
+                start: 0,
+                end: task.total > 0 ? task.total - 1 : 0,
+                current: 0,
+                complete: false
+            }];
+        } else if (task.threads.length > 1) {
+            task.isResumable = true;
+        }
 
         saveState(true);
         broadcast();
 
-        const promises = task.threads.filter(t => !t.complete).map(t => downloadThread(task, t, masterController.signal));
-        await Promise.all(promises);
+        await new Promise((resolve, reject) => {
+            task.checkCompletion = () => {
+                if (masterController.signal.aborted) return;
+                const allDone = task.threads.every(t => t.complete);
+                if (allDone) resolve();
+            };
+
+            task.handleError = (e) => {
+                reject(e);
+            };
+
+            const activeThreads = task.threads.filter(t => !t.complete);
+            if (activeThreads.length === 0) {
+                task.checkCompletion();
+            } else {
+                activeThreads.forEach(t => {
+                    downloadThread(task, t, masterController.signal).catch(e => {
+                        if (e.name !== 'AbortError') task.handleError(e);
+                    });
+                });
+            }
+        });
+
+        if (masterController.signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+        }
 
         if (task.status === 'running') triggerAssembly(task);
 
@@ -550,22 +588,43 @@ async function downloadThread(task, threadInfo, signal) {
             const {done, value} = await reader.read();
             if (done || signal.aborted) break;
 
-            const len = value.length;
-            threadInfo.current += len;
-            task.loaded += len;
-            chunksArray.push(value);
-            bytesInBuffer += len;
+            let chunk = value;
+            let isDynamicEndReached = false;
+
+            if (task.isResumable && threadInfo.end > 0 && (threadInfo.current + chunk.length > threadInfo.end + 1)) {
+                const allowedLen = (threadInfo.end + 1) - threadInfo.current;
+                if (allowedLen > 0) {
+                    chunk = chunk.slice(0, allowedLen);
+                } else {
+                    chunk = new Uint8Array(0);
+                }
+                isDynamicEndReached = true;
+            }
+
+            const len = chunk.length;
+            if (len > 0) {
+                threadInfo.current += len;
+                task.loaded += len;
+                chunksArray.push(chunk);
+                bytesInBuffer += len;
+            }
 
             if (Date.now() - lastBroadcastThread > 500) {
                 broadcast();
                 lastBroadcastThread = Date.now();
             }
+
             if (bytesInBuffer >= CHUNK_SIZE) {
                 await flushBufferToDB(task.id, chunksArray, bytesInBuffer, streamPos);
                 streamPos += bytesInBuffer;
                 chunksArray = [];
                 bytesInBuffer = 0;
                 throttledSave();
+            }
+
+            if (isDynamicEndReached) {
+                try { reader.cancel(); } catch(e){}
+                break;
             }
         }
 
@@ -577,6 +636,10 @@ async function downloadThread(task, threadInfo, signal) {
         if (!signal.aborted) {
             threadInfo.complete = true;
             saveState(false);
+
+            spawnNewThreadIfNeeded(task, signal);
+
+            if (task.checkCompletion) task.checkCompletion();
         }
     } catch (e) {
         if (bytesInBuffer > 0) {
@@ -585,6 +648,55 @@ async function downloadThread(task, threadInfo, signal) {
             bytesInBuffer = 0;
         }
         throw e;
+    }
+}
+
+function spawnNewThreadIfNeeded(task, signal) {
+    if (!task.isResumable || task.total <= 0) return;
+
+    const activeThreads = task.threads.filter(t => !t.complete).length;
+    if (activeThreads >= appSettings.maxThreads || activeThreads === 0) return;
+
+    let largestRemaining = 0;
+    let targetThread = null;
+
+    task.threads.forEach(t => {
+        if (!t.complete) {
+            const remain = t.end - t.current;
+            if (remain > largestRemaining) {
+                largestRemaining = remain;
+                targetThread = t;
+            }
+        }
+    });
+
+    const MIN_SPLIT_SIZE = 1024 * 1024 * 2;
+
+    if (largestRemaining > MIN_SPLIT_SIZE && targetThread) {
+        const mid = targetThread.current + Math.floor(largestRemaining / 2);
+        const oldEnd = targetThread.end;
+
+        targetThread.end = mid - 1;
+
+        const newThread = {
+            index: task.threads.length,
+            start: mid,
+            end: oldEnd,
+            current: mid,
+            complete: false
+        };
+
+        task.threads.push(newThread);
+        task.threads.sort((a, b) => a.start - b.start);
+
+        saveState(true);
+        broadcast();
+
+        downloadThread(task, newThread, signal).catch(e => {
+            if (e.name !== 'AbortError' && task.handleError) {
+                task.handleError(e);
+            }
+        });
     }
 }
 

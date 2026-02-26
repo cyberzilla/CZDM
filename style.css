@@ -204,11 +204,58 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; positio
 }
 .copy-url-btn:hover { background: var(--btn-hover-bg); color: var(--primary); }
 
-.progress-compact { height: 6px; background: var(--border); border-radius: 3px; width: 100%; overflow: hidden; margin-top: 4px; position: relative; }
-.prog-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; z-index: 1; }
-.prog-threads { position: absolute; inset: 0; display: flex; gap: 1px; z-index: 2; width: 100%; }
-.th-bit { flex: 1; background: var(--border); height: 100%; }
-.th-bit-fill { height: 100%; width: 0%; background: #3b82f6; transition: width 0.2s; }
+/* --- PERBAIKAN PROGRESS BAR & THREADS --- */
+.progress-compact {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    width: 100%;
+    overflow: hidden;
+    margin-top: 4px;
+    position: relative;
+}
+
+.prog-fill {
+    height: 100%;
+    background: var(--primary);
+    width: 0%;
+    transition: width 0.2s;
+    z-index: 1;
+}
+
+.prog-threads {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    gap: 0 !important; /* Hapus gap bawaan flexbox agar menyatu */
+    z-index: 2;
+    width: 100%;
+}
+
+.th-bit {
+    flex: 1;
+    background: var(--border);
+    height: 100%;
+    border-right: 1px solid var(--surface); /* Gunakan border sebagai pengganti spasi */
+}
+
+.th-bit:last-child {
+    border-right: none;
+}
+
+/* Class ini ditambahkan oleh popup.js untuk meleburkan thread yang bersebelahan dan complete */
+.th-bit.merged-right {
+    border-right: none !important;
+    margin-right: 0 !important;
+}
+
+.th-bit-fill {
+    height: 100%;
+    width: 0%;
+    background: #3b82f6;
+    transition: width 0.2s;
+}
+/* ---------------------------------------- */
 
 .file-meta { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
 .meta-right { font-weight: 700; font-size: 10px; text-transform: uppercase; }

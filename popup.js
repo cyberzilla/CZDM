@@ -346,39 +346,84 @@ function renderList(tasks) {
         const metaLeft = row.querySelector('.meta-left');
         const metaRight = row.querySelector('.meta-right');
 
-        if (isRunning && task.threads && task.threads.length > 1) {
+        const showThreads = task.threads && task.threads.length > 1 && !isComplete && rawStatus !== 'assembling';
+
+        if (showThreads) {
             fill.style.display = 'none';
             threadsDiv.style.display = 'flex';
-            while (threadsDiv.children.length < task.threads.length) {
+
+            const sortedThreads = [...task.threads].sort((a, b) => a.start - b.start);
+
+            while (threadsDiv.children.length < sortedThreads.length) {
                 const d = document.createElement('div');
                 d.className = 'th-bit';
                 d.appendChild(document.createElement('div')).className = 'th-bit-fill';
                 threadsDiv.appendChild(d);
             }
-            while (threadsDiv.children.length > task.threads.length) threadsDiv.lastChild.remove();
+            while (threadsDiv.children.length > sortedThreads.length) threadsDiv.lastChild.remove();
 
             const fills = threadsDiv.querySelectorAll('.th-bit-fill');
-            task.threads.forEach((t, i) => {
+            sortedThreads.forEach((t, i) => {
                 if (fills[i]) {
-                    const tot = t.end - t.start;
-                    const ld = t.current - t.start;
+                    const parentBit = fills[i].parentElement;
+
+                    let tot = (t.end - t.start) + 1;
+                    if (tot < 0) tot = 0;
+
+                    let ld = t.current - t.start;
+                    if (ld < 0) ld = 0;
+
                     let p = tot > 0 ? (ld / tot) * 100 : 0;
+                    if (p > 100) p = 100;
                     if (t.complete) p = 100;
+
                     fills[i].style.width = `${p}%`;
+
+                    if (task.total > 0) {
+                        const threadProportion = (tot / task.total) * 100;
+                        parentBit.style.flex = `0 0 ${threadProportion}%`;
+                    }
+
+                    if (t.complete && sortedThreads[i+1] && sortedThreads[i+1].complete) {
+                        parentBit.classList.add('merged-right');
+                    } else {
+                        parentBit.classList.remove('merged-right');
+                    }
+
+                    if (isError) fills[i].style.background = 'var(--danger)';
+                    else if (isPaused) fills[i].style.background = 'var(--warning)';
+                    else fills[i].style.background = 'var(--primary)';
                 }
             });
         } else {
             threadsDiv.style.display = 'none';
             fill.style.display = 'block';
             fill.style.width = `${percent}%`;
+
             let colorVar = 'var(--primary)';
             if (isError) colorVar = 'var(--danger)';
             else if (isComplete) colorVar = 'var(--success)';
             else if (isPaused) colorVar = 'var(--warning)';
+
             fill.style.background = colorVar;
         }
 
-        const newMetaLeft = `${formatBytes(task.loaded)} / ${formatBytes(task.total)} • ${percent}%`;
+        // Tampilkan ETA jika sedang berjalan, dan Tampilkan Total Time jika sudah selesai
+        let etaString = "";
+        if (isRunning && task.total > 0 && percent < 100) {
+            if (task.remainingTime !== undefined && task.remainingTime >= 0) {
+                etaString = ` • ETA: ${formatTime(task.remainingTime)}`;
+            } else {
+                etaString = ` • ETA: Calculating...`;
+            }
+        } else if (isComplete || rawStatus === 'assembling') {
+            const durationSecs = Math.floor((task.downloadDuration || 0) / 1000);
+            if (durationSecs > 0) {
+                etaString = ` • Time: ${formatTime(durationSecs)}`;
+            }
+        }
+
+        const newMetaLeft = `${formatBytes(task.loaded)} / ${formatBytes(task.total)} • ${percent}%${etaString}`;
         if (metaLeft.innerText !== newMetaLeft) metaLeft.innerText = newMetaLeft;
 
         let statusText = isRunning ? formatSpeed(task.speed) : task.status.toUpperCase();
@@ -775,6 +820,16 @@ function formatBytes(bytes) {
 
 function formatSpeed(s) {
     return (!s || s < 0) ? '0 B/s' : formatBytes(s) + '/s';
+}
+
+function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return 'Calculating...';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
 }
 
 function showToast(msg) {
