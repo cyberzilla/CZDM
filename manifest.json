@@ -3,8 +3,8 @@
   "name": "CzDM - Cyberzilla Download Manager",
   "short_name": "CzDM",
   "full_name": "Cyberzilla Download Manager",
-  "version": "1.0.2",
-  "description": "Simple Download Manager with multi-thread acceleration, Smart Media Grabber, Resume capability, and anti-corruption technology.",
+  "version": "1.1.0",
+  "description": "Simple Download Manager with multi-thread acceleration, Smart Media Grabber, Resume capability, Retry backoff, Download History, Queue Priority, and Bandwidth Throttle.",
   "author": "Cyberzilla",
   "permissions": [
     "downloads",
@@ -30,8 +30,8 @@
     }
   ],
   "icons": {
-    "16": "img/16x16.png",
-    "48": "img/48x48.png",
+    "16":  "img/16x16.png",
+    "48":  "img/48x48.png",
     "128": "img/128x128.png"
   },
   "background": {
@@ -39,7 +39,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "CZDM Manager",
+    "default_title": "CzDM Manager",
     "default_icon": {
       "16": "img/16x16.png",
       "48": "img/48x48.png"

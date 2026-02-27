@@ -74,100 +74,109 @@ function getThemeStyles(themeMode) {
     }
 }
 
+// Singleton stack container — dibuat sekali, semua notifikasi masuk ke sini
+function getCzdmNotifStack() {
+    const STACK_ID = '__czdm_notif_stack__';
+    let stack = document.getElementById(STACK_ID);
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.id = STACK_ID;
+        stack.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2147483647;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+            font-family: system-ui, -apple-system, sans-serif;
+        `;
+        document.body.appendChild(stack);
+    }
+    return stack;
+}
+
 function showCzdmNotification(url, providedFilename, themeMode) {
     const filename = extractCzdmFilename(url, providedFilename);
-    const style = getThemeStyles(themeMode);
+    const style    = getThemeStyles(themeMode);
+    const stack    = getCzdmNotifStack();
 
-    const container = document.createElement('div');
-    container.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
+    // Wrapper: digunakan untuk animasi collapse (naik) saat notifikasi di atas dihapus
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `
+        overflow: hidden;
+        max-height: 200px;
+        transition: max-height 0.35s ease, opacity 0.35s ease;
+        opacity: 1;
+    `;
+
+    // Card notifikasi
+    const card = document.createElement('div');
+    card.style.cssText = `
         background: ${style.bg};
         color: ${style.text};
-        padding: 16px 20px;
+        padding: 14px 18px;
         border-radius: 8px;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.1);
         border: ${style.border};
         backdrop-filter: ${style.backdrop};
         -webkit-backdrop-filter: ${style.backdrop};
-        z-index: 2147483647;
-        font-family: system-ui, -apple-system, sans-serif;
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 14px;
         border-left: 4px solid #3b82f6;
-        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
-        transform: translateX(150%);
+        width: 320px;
+        transform: translateX(120%);
         opacity: 0;
-        pointer-events: none;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.35s ease;
     `;
 
     const iconDiv = document.createElement('div');
-    iconDiv.innerHTML = `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-    `;
+    iconDiv.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
     iconDiv.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(59, 130, 246, 0.15);
-        padding: 8px;
-        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(59, 130, 246, 0.15); padding: 7px; border-radius: 50%; flex-shrink: 0;
     `;
 
     const textContainer = document.createElement('div');
-    textContainer.style.cssText = `
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        max-width: 280px;
-    `;
+    textContainer.style.cssText = `display: flex; flex-direction: column; overflow: hidden; flex: 1;`;
 
     const titleObj = document.createElement('span');
-    titleObj.innerText = 'Added to CzDM';
-    titleObj.style.cssText = `
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 4px;
-        color: ${style.text};
-        line-height: 1.2;
-    `;
+    titleObj.textContent = 'Added to CzDM';
+    titleObj.style.cssText = `font-size: 13px; font-weight: 600; margin-bottom: 3px; color: ${style.text}; line-height: 1.2;`;
 
     const fileObj = document.createElement('span');
-    fileObj.innerText = filename;
-    fileObj.style.cssText = `
-        font-size: 12px;
-        color: ${style.subText};
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.2;
-    `;
+    fileObj.textContent = filename;
+    fileObj.style.cssText = `font-size: 11px; color: ${style.subText}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;`;
 
     textContainer.appendChild(titleObj);
     textContainer.appendChild(fileObj);
+    card.appendChild(iconDiv);
+    card.appendChild(textContainer);
+    wrapper.appendChild(card);
+    stack.appendChild(wrapper);
 
-    container.appendChild(iconDiv);
-    container.appendChild(textContainer);
-
-    document.body.appendChild(container);
-
+    // Animasi masuk: slide dari kanan
     requestAnimationFrame(() => {
-        container.style.transform = 'translateX(0)';
-        container.style.opacity = '1';
+        requestAnimationFrame(() => {
+            card.style.transform = 'translateX(0)';
+            card.style.opacity   = '1';
+        });
     });
 
+    // Dismiss: slide card keluar → collapse wrapper → hapus dari DOM
+    // Item di bawahnya akan otomatis naik karena flex gap menyesuaikan
     setTimeout(() => {
-        container.style.transform = 'translateX(150%)';
-        container.style.opacity = '0';
+        card.style.transform = 'translateX(120%)';
+        card.style.opacity   = '0';
         setTimeout(() => {
-            if (container.parentNode) container.parentNode.removeChild(container);
-        }, 400);
+            wrapper.style.maxHeight = '0px';
+            wrapper.style.opacity   = '0';
+            setTimeout(() => {
+                if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+            }, 360);
+        }, 350);
     }, 3500);
 }
 
