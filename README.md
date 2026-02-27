@@ -1,6 +1,6 @@
 # CZDM - Cyberzilla Download Manager
 
-![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Chromium-orange.svg)
 [![Available on Edge](https://img.shields.io/badge/Available_on-Edge_Store-blue?logo=microsoftedge)](https://microsoftedge.microsoft.com/addons/detail/enjhnhjjehlhoiianknfnjfncalilfag)
@@ -11,15 +11,20 @@ Built for Chromium-based browsers (Google Chrome, Microsoft Edge, Brave, Opera).
 
 ## 🌟 Key Features
 
-* **🚀 Multi-Threaded Engine:** Splits files into multiple chunks (up to 8 threads) to maximize bandwidth usage and download speed.
+* **🚀 Multi-Threaded Engine:** Splits files into multiple chunks (up to 16 threads) to maximize bandwidth usage and download speed.
 * **🛡️ Corruption-Proof Architecture:** Utilizes an **Offset-based IndexedDB** storage system. This ensures chunks are assembled based on their exact byte position, guaranteeing 100% data integrity even if threads finish out of order.
 * **⏯️ Resume Capability:** Pause and resume downloads anytime without losing progress (requires server support for byte-ranges).
+* **🔄 Auto-Retry with Backoff:** Automatically retries failed downloads using exponential backoff (configurable up to 5 retries).
+* **🚦 Queue Priority Management:** Easily move tasks up or down in the queue to prioritize your most important downloads.
+* **⏱️ Bandwidth Throttling:** Set a global speed limit to prevent the manager from consuming all your available bandwidth.
+* **📚 Download History:** Built-in history tab to track your previous downloads, completion times, and file sizes.
+* **📦 Batch URL Import:** Paste multiple URLs at once to seamlessly add them all to your download queue.
 * **🔍 Smart Media Grabber:** Automatically scans active webpages for video, audio, images, and archives. Includes "Select All" and filtering capabilities.
-* **📋 Smart Paste:** Automatically detects valid URLs from your clipboard when opening the "Add URL" modal.
+* **📋 Smart Paste:** Automatically detects valid URLs from your clipboard when opening the "Add URL" or "Batch Import" modal.
 * **💬 Smart Page Prompt:** Intercepts downloads and displays a clean confirmation prompt inside the current webpage, automatically checking file size and type before downloading.
 * **🔔 In-Page Notifications:** Displays a sleek toast notification directly on the webpage when a download is successfully added to the queue.
 * **🧩 Large File Support:** Leverages the **Offscreen API** and **Blob Assembly** to handle large files (GBs) efficiently without crashing browser memory.
-* **🎨 Modern UI:** A unified, clean interface with Dark/Light mode, Liquid Glass theme support, consistent styling across Dashboard and Grabber, and a native app feel.
+* **🎨 Modern UI:** A unified, clean interface with Dark, Light, and a stunning Liquid Glass theme support, consistent styling across Dashboard and Grabber, and a native app feel.
 
 ## 📂 Project Structure
 
@@ -62,32 +67,39 @@ If you want to view the source code or use it on other Chromium browsers manuall
 ## 📖 Usage Guide
 
 ### Dashboard
-1.  **Add URL:** Click the **Add URL** button. Use the **Paste** icon to instantly grab a URL from your clipboard. The system will pre-check the file size and MIME type.
+1.  **Add URL:** Click the **Add URL** button. Use the **Single URL** tab for one file, or **Batch Import** for multiple files. Use the **Paste** icon to instantly grab URLs from your clipboard.
 2.  **Manage Downloads:**
-    * **Start:** Resume or start selected tasks.
+    * **Start:** Resume or start selected tasks in the queue.
     * **Pause:** Pause running tasks.
     * **Delete:** Remove tasks from the list (prompts for confirmation).
+    * **Priority:** Use the Move Up / Move Down arrows to adjust the queue priority of selected files.
     * **Select All:** Quickly select all items for bulk actions.
-3.  **Clear:** Removes all "Completed" or "Error" tasks from the list to clean up the view.
+3.  **Clear All:** Removes all "Completed" or "Error" tasks from the active dashboard.
 
 ### Smart Grabber
 1.  Navigate to any website containing media (images, videos, archives).
 2.  Open the extension and switch to the **Grabber** tab.
-3.  Click **Start Scan**.
+3.  Click **Scan Current Page**.
 4.  Use the **Filter** box to find specific file types (e.g., `mp4`, `jpg`).
 5.  Check the boxes for the files you want (or use **Select All**) and click **Download**.
+
+### History Tab
+1.  View your complete download history, including file sizes, completion times, and total statistics.
+2.  Click the **Copy** icon next to any history item to retrieve the original download URL.
+3.  Use the **Clear** button to purge your download history.
 
 ## 🔒 Permissions Explained
 
 CZDM requests the minimum permissions necessary to function:
 
-* `downloads`: To trigger the browser's download API for saving the final file.
+* `downloads` / `downloads.open`: To trigger the browser's download API and open files directly.
 * `storage` / `unlimitedStorage`: To store temporary file chunks in IndexedDB before assembly.
 * `offscreen`: To process large blobs in the background without freezing the UI.
 * `activeTab` / `scripting`: Required for the Smart Grabber to scan the current page.
 * `clipboardRead`: Enables the "Smart Paste" button in the Add URL modal.
 * `contextMenus`: Adds a "Download with CZDM" option to the browser's right-click menu.
 * `notifications`: To show native OS desktop notifications.
+* `alarms`: Used to keep the service worker alive during active downloads.
 * `<all_urls>`: Required to download files from any domain via XHR/Fetch and inject prompts/toasts into web pages.
 
 ## 📄 License
