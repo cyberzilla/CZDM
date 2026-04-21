@@ -1,10 +1,11 @@
 // =============================================================================
-// CZDM - Cyberzilla Download Manager | background.js v1.3.0
+// CZDM - Cyberzilla Download Manager | background.js v1.3.1
 //
-// Fix v1.3.0:
-//   Sistem prioritas sekarang memperhitungkan SEMUA task aktif (termasuk 
-//   yang sedang running/assembling) agar urutan antrian bersifat global 
-//   dan tidak tumpang tindih saat task dipause.
+// Fix v1.3.1:
+//   - Memblokir "ghost downloads" (Chrome secara otomatis me-resume download
+//     native yang gagal saat browser baru dibuka).
+//   - Mencegah URL duplikat masuk ke queue saat sedang aktif/dipause.
+//   - Memastikan state 'paused' tersimpan permanen ke storage saat restore.
 // =============================================================================
 
 const DB_NAME      = 'CZDM_DB';
@@ -96,6 +97,9 @@ async function restoreState() {
                 `${resumedCount} download(s) paused after browser restart. Open CzDM to resume.`
             );
         }
+
+        // FIX: Pastikan state paused tersimpan kembali ke storage agar persisten
+        saveState(true);
     }
     startBroadcastLoop();
     runGarbageCollector();
@@ -150,7 +154,7 @@ function movePriority(taskId, direction) {
     } else if (direction === 'down' && idx < activeTasks.length - 1) {
         [activeTasks[idx], activeTasks[idx + 1]] = [activeTasks[idx + 1], activeTasks[idx]];
     } else {
-        return; 
+        return;
     }
 
     activeTasks.forEach((t, i) => { t.priority = (i + 1) * 10; });
@@ -173,7 +177,7 @@ function getActiveTaskCountForHost(hostname) {
 
 function getEffectiveMaxThreads(hostname) {
     const activeSameHost = Math.max(1, getActiveTaskCountForHost(hostname));
-    const availableConns = BROWSER_CONN_LIMIT - 1; 
+    const availableConns = BROWSER_CONN_LIMIT - 1;
     const fairShare      = Math.max(1, Math.floor(availableConns / activeSameHost));
     return Math.min(appSettings.maxThreads, fairShare);
 }
@@ -331,6 +335,11 @@ chrome.downloads.onCreated.addListener((item) => {
     if (!appSettings.autoOverride) return;
     if (item.byExtensionId === chrome.runtime.id) return;
     if (!item.url || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) return;
+
+    // FIX: Cegah intercept "ghost downloads" atau restore otomatis dari Chrome
+    if (item.state !== 'in_progress') return;
+    const itemStartTime = new Date(item.startTime).getTime();
+    if (Date.now() - itemStartTime > 15000) return; // Abaikan jika download dimulai dari lebih 15 detik yang lalu
 
     const interceptExts = appSettings.interceptExts.split(',')
         .map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -511,6 +520,17 @@ function processQueue() {
 
 async function queueDownload(rawUrl, providedFilename = '') {
     const url = parseGoogleDriveLink(rawUrl);
+
+    // FIX: Cegah duplikasi task jika file dengan URL yang sama sedang aktif (termasuk dipause)
+    let isDuplicate = false;
+    for (const t of tasks.values()) {
+        if (t.url === url && ['queued', 'running', 'assembling', 'paused'].includes(t.status)) {
+            isDuplicate = true;
+            break;
+        }
+    }
+    if (isDuplicate) return;
+
     const id  = Date.now().toString() + Math.random().toString(36).substring(2, 5);
 
     let initialName = 'Pending...';
@@ -605,7 +625,7 @@ async function handleCheckUrl(rawUrl, sendResponse) {
 async function startDownload(task) {
     if (!db) await initDB();
     task.status       = 'running';
-    task.isConnecting = true; 
+    task.isConnecting = true;
     saveState(true);
     broadcast();
 
@@ -703,14 +723,14 @@ async function startDownload(task) {
         if (task.status === 'running') triggerAssembly(task);
 
     } catch (e) {
-        task.isConnecting = false; 
+        task.isConnecting = false;
         const isAbort = e.name === 'AbortError';
         if (!isAbort) {
             masterController.abort();
             const maxRetries = appSettings.maxRetries || 3;
             if (task.retryCount < maxRetries) {
                 task.retryCount++;
-                const delay = Math.pow(2, task.retryCount) * 1000; 
+                const delay = Math.pow(2, task.retryCount) * 1000;
                 task.status = 'queued';
                 activeControllers.delete(task.id);
                 saveState(true);
