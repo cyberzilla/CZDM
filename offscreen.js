@@ -31,6 +31,12 @@ function calculateCRC32Chunk(buffer, previousCrc32 = 0) {
 function initDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            if (!d.objectStoreNames.contains('chunks')) {
+                d.createObjectStore('chunks', { keyPath: ['taskId', 'offset'] });
+            }
+        };
         request.onsuccess = (e) => { db = e.target.result; resolve(db); };
         request.onerror   = (e) => reject(e);
     });

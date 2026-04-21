@@ -1,11 +1,18 @@
 // =============================================================================
-// CZDM - Cyberzilla Download Manager | background.js v1.3.1
+// CZDM - Cyberzilla Download Manager | background.js v1.4.0
 //
-// Fix v1.3.1:
-//   - Memblokir "ghost downloads" (Chrome secara otomatis me-resume download
-//     native yang gagal saat browser baru dibuka).
-//   - Mencegah URL duplikat masuk ke queue saat sedang aktif/dipause.
-//   - Memastikan state 'paused' tersimpan permanen ke storage saat restore.
+// Fix v1.4.0:
+//   - [SECURITY] Menghapus auto-credential retry untuk mencegah cookie leakage.
+//   - [SECURITY] Sanitasi URL sensitif sebelum disimpan ke history.
+//   - [SECURITY] Fix XSS vector pada filename handling.
+//   - [BUG] Fix task ID collision di batch import dengan crypto.randomUUID().
+//   - [BUG] Fix task.loaded underflow saat multi-thread error bersamaan.
+//   - [BUG] Fix Content-Range parsing untuk unknown total size (*/*).
+//   - [BUG] Fix bandwidth throttle race condition.
+//   - [BUG] Fix dead code revoke_blob action name mismatch.
+//   - [BUG] Fix blanket return true di message listener.
+//   - [BUG] Ensure offscreen document alive sebelum OPFS cleanup.
+//   - [BUG] Error handling untuk saveState dan garbage collector.
 // =============================================================================
 
 const DB_NAME      = 'CZDM_DB';
@@ -32,9 +39,9 @@ const bwThrottle = {
         if (now - this.window >= 1000) { this.bytes = 0; this.window = now; }
         this.bytes += amount;
         if (this.bytes > limit) {
-            const wait = 1000 - (Date.now() - this.window);
+            const wait = Math.max(0, 1000 - (Date.now() - this.window));
             if (wait > 0) await new Promise(r => setTimeout(r, wait));
-            this.bytes  = amount;
+            this.bytes  = 0;
             this.window = Date.now();
         }
     }
@@ -119,7 +126,11 @@ function saveState(force = false) {
         delete copy.threads;
         return [id, copy];
     });
-    chrome.storage.local.set({ tasks: serialized });
+    chrome.storage.local.set({ tasks: serialized }, () => {
+        if (chrome.runtime.lastError) {
+            console.error('CzDM: Failed to save state:', chrome.runtime.lastError.message);
+        }
+    });
 }
 
 function throttledSave() { saveState(false); }
@@ -221,16 +232,20 @@ function broadcast() {
 }
 
 async function runGarbageCollector() {
-    if (!db) await initDB();
-    const tx    = db.transaction(['chunks'], 'readwrite');
-    const store = tx.objectStore('chunks');
-    store.openCursor().onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (cursor) {
-            if (!tasks.has(cursor.value.taskId)) cursor.delete();
-            cursor.continue();
-        }
-    };
+    try {
+        if (!db) await initDB();
+        const tx    = db.transaction(['chunks'], 'readwrite');
+        const store = tx.objectStore('chunks');
+        store.openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (cursor) {
+                if (!tasks.has(cursor.value.taskId)) cursor.delete();
+                cursor.continue();
+            }
+        };
+    } catch (e) {
+        console.error('CzDM: Garbage collector failed:', e.message);
+    }
 }
 
 async function cleanOrphanedOPFS() {
@@ -292,6 +307,32 @@ function parseContentDisposition(disp) {
     return null;
 }
 
+function parseContentRangeTotal(header) {
+    if (!header) return 0;
+    const total = header.split('/')[1];
+    return (total && total !== '*') ? parseInt(total) : 0;
+}
+
+function sanitizeUrlForHistory(url) {
+    try {
+        const u = new URL(url);
+        const sensitiveKeys = [
+            'token', 'access_token', 'auth', 'key', 'apikey', 'api_key',
+            'secret', 'password', 'passwd', 'session', 'sid',
+            'x-amz-security-token', 'x-amz-credential', 'x-amz-signature',
+            'x-goog-signature', 'sig', 'signature', 'jwt'
+        ];
+        for (const [key] of [...u.searchParams]) {
+            if (sensitiveKeys.includes(key.toLowerCase())) {
+                u.searchParams.set(key, '[REDACTED]');
+            }
+        }
+        return u.toString();
+    } catch (e) {
+        return url;
+    }
+}
+
 const HISTORY_MAX = 200;
 
 function addToHistory(task) {
@@ -300,7 +341,7 @@ function addToHistory(task) {
         history.unshift({
             id:         task.id,
             filename:   task.filename,
-            url:        task.url,
+            url:        sanitizeUrlForHistory(task.url),
             size:       task.total,
             mime:       task.mime || '-',
             status:     task.status,
@@ -500,10 +541,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             break;
 
         case 'revoke_blob':
-            chrome.runtime.sendMessage({ action: '_do_revoke_blob', url: msg.url }).catch(() => {});
+            chrome.runtime.sendMessage({ action: 'revoke_blob_url', url: msg.url }).catch(() => {});
             break;
     }
-    return true;
+    return false;
 });
 
 function processQueue() {
@@ -531,7 +572,7 @@ async function queueDownload(rawUrl, providedFilename = '') {
     }
     if (isDuplicate) return;
 
-    const id  = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+    const id  = crypto.randomUUID();
 
     let initialName = 'Pending...';
     if (providedFilename && typeof providedFilename === 'string' && providedFilename.trim()) {
@@ -589,15 +630,13 @@ async function handleCheckUrl(rawUrl, sendResponse) {
     try {
         let resp = await fetch(url, { method: 'HEAD', signal: controller.signal });
         if (!resp.ok) resp = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-0' }, signal: controller.signal });
-        if (resp.status === 401 || resp.status === 403) {
-            resp = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-0' }, credentials: 'include', signal: controller.signal });
-        }
+        // SECURITY: Removed auto-credential retry to prevent cookie leakage to arbitrary servers
         clearTimeout(timeoutId);
         if (!resp.ok && resp.status !== 206 && resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
 
         let size = 0;
         const cr = resp.headers.get('content-range');
-        if (cr) size = parseInt(cr.split('/')[1]);
+        if (cr) size = parseContentRangeTotal(cr);
         else    size = parseInt(resp.headers.get('content-length') || '0');
 
         let name = parseContentDisposition(resp.headers.get('content-disposition'));
@@ -637,13 +676,9 @@ async function startDownload(task) {
             method: 'GET', headers: { Range: 'bytes=0-0' }, signal: masterController.signal
         });
 
+        // SECURITY: Tidak auto-retry dengan credentials untuk mencegah cookie leakage
         if (response.status === 401 || response.status === 403) {
-            response = await fetch(task.url, {
-                method: 'GET', headers: { Range: 'bytes=0-0' },
-                credentials: 'include', signal: masterController.signal
-            });
-            if (response.ok || response.status === 206) task.useCredentials = true;
-            else throw new Error(`Access Denied (HTTP ${response.status})`);
+            throw new Error(`Access Denied (HTTP ${response.status}). Server requires authentication.`);
         } else if (!response.ok && response.status !== 206) {
             throw new Error(`HTTP Error ${response.status}`);
         }
@@ -653,7 +688,7 @@ async function startDownload(task) {
         task.finalUrl    = response.url;
         const cr         = response.headers.get('content-range');
         const cl         = response.headers.get('content-length');
-        task.total       = cr ? parseInt(cr.split('/')[1]) : (cl ? parseInt(cl) : 0);
+        task.total       = cr ? parseContentRangeTotal(cr) : (cl ? parseInt(cl) : 0);
         task.isResumable = (response.status === 206)
             || (response.headers.get('accept-ranges') === 'bytes') || !!cr;
         task.serverHash  = (response.headers.get('etag') || '-').replace(/['"]/g, '');
@@ -843,8 +878,9 @@ async function downloadThread(task, threadInfo, signal) {
     } catch (e) {
         if (bytesInBuffer > 0) {
             threadInfo.current -= bytesInBuffer;
-            task.loaded        -= bytesInBuffer;
         }
+        // FIX: Recompute task.loaded from thread state to prevent underflow/corruption
+        task.loaded = task.threads.reduce((sum, t) => sum + Math.max(0, t.current - t.start), 0);
         throw e;
     }
 }
@@ -919,7 +955,17 @@ function cancelTask(id) {
     if (tasks.has(id)) {
         tasks.delete(id);
         cleanupDB(id);
-        chrome.runtime.sendMessage({ action: 'cleanup_opfs', taskId: id }).catch(() => {});
+        // FIX: Ensure offscreen document exists before sending cleanup message
+        (async () => {
+            try {
+                if (!(await chrome.offscreen.hasDocument())) {
+                    await chrome.offscreen.createDocument({
+                        url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Cleanup OPFS Storage'
+                    });
+                }
+                chrome.runtime.sendMessage({ action: 'cleanup_opfs', taskId: id }).catch(() => {});
+            } catch (e) {}
+        })();
         saveState(true);
         broadcast();
         processQueue();

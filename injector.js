@@ -34,7 +34,7 @@ function formatBytes(bytes) {
     if (!+bytes || bytes <= 0) return 'Unknown Size';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
@@ -222,11 +222,28 @@ function showCzdmPrompt(url, providedFilename, fileSize, themeMode, sendResponse
 
     const fileRow = document.createElement('div');
     fileRow.style.cssText = 'display: flex; margin-bottom: 8px; font-size: 13px;';
-    fileRow.innerHTML = `<span style="color: ${style.subText}; width: 45px; flex-shrink: 0;">File:</span> <span style="font-weight: 500; word-break: break-all;">${filename}</span>`;
+    // SECURITY FIX: Use textContent instead of innerHTML to prevent XSS from malicious filenames
+    const fileLabelSpan = document.createElement('span');
+    fileLabelSpan.style.cssText = `color: ${style.subText}; width: 45px; flex-shrink: 0;`;
+    fileLabelSpan.textContent = 'File:';
+    const fileValueSpan = document.createElement('span');
+    fileValueSpan.style.cssText = 'font-weight: 500; word-break: break-all;';
+    fileValueSpan.textContent = filename;
+    fileRow.appendChild(fileLabelSpan);
+    fileRow.appendChild(document.createTextNode(' '));
+    fileRow.appendChild(fileValueSpan);
 
     const sizeRow = document.createElement('div');
     sizeRow.style.cssText = 'display: flex; font-size: 13px;';
-    sizeRow.innerHTML = `<span style="color: ${style.subText}; width: 45px; flex-shrink: 0;">Size:</span> <span style="font-weight: 500; color: #3b82f6;">${displaySize}</span>`;
+    const sizeLabelSpan = document.createElement('span');
+    sizeLabelSpan.style.cssText = `color: ${style.subText}; width: 45px; flex-shrink: 0;`;
+    sizeLabelSpan.textContent = 'Size:';
+    const sizeValueSpan = document.createElement('span');
+    sizeValueSpan.style.cssText = 'font-weight: 500; color: #3b82f6;';
+    sizeValueSpan.textContent = displaySize;
+    sizeRow.appendChild(sizeLabelSpan);
+    sizeRow.appendChild(document.createTextNode(' '));
+    sizeRow.appendChild(sizeValueSpan);
 
     infoBox.appendChild(fileRow);
     infoBox.appendChild(sizeRow);
